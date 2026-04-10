@@ -812,46 +812,45 @@ export class ScrollEngine {
    *
    * Writes 8 CSS vars (only when values change).
    *
-   * Uses cached region data for coarse detection, then validates the
-   * boundary position against the DOM element's real-time rect. This
-   * prevents stale measurements from causing a visible offset between
-   * the gradient split and the actual content background edge.
+   * Refreshes cached positions of nearby surface regions each frame so
+   * that both surfaceAtY() probes and boundary search use live data.
+   * Without this, stale caches cause the engine to miss boundaries
+   * entirely for several pixels, creating a visible "invisible bar"
+   * where foreground elements disappear.
    */
   private updateHeaderSurface(): void {
     const h = this.cachedHeaderTotalH;
-    const cutline = this.surfaceCutlinePx; // real visible cutline (viewport px)
+    const cutline = this.surfaceCutlinePx;
     const sy = this.state.rawScrollY;
 
-    // Convert cutline to document-space: where content actually meets the header edge
-    const cutlineDocY = sy + cutline;
+    // ── Refresh nearby region positions ──
+    // Only touch regions whose cached position is within ~200px of the
+    // header zone. This is typically 2-3 elements — cheap per frame.
+    const margin = 200;
+    for (const region of this.surfaceRegions) {
+      if (region.startPx > sy + h + margin) break; // sorted, done
+      if (region.endPx < sy - margin) continue;
+      const rect = region.el.getBoundingClientRect();
+      region.startPx = rect.top + sy;
+      region.endPx = rect.bottom + sy;
+    }
 
-    // Zone edges in document-space, anchored to the cutline
+    // Zone edges in document-space
     const zoneTop = sy;
-    const zoneBottom = cutlineDocY;
+    const zoneBottom = sy + cutline;
 
-    // Surface at zone edges (uses cached regions — fine for color detection)
+    // Surface at zone edges — now uses refreshed region positions
     const topSurface = this.surfaceAtY(zoneTop + 1);
     const bottomSurface = this.surfaceAtY(zoneBottom - 1);
 
     // Boundary detection: find where the surface changes within the zone.
-    // boundaryOffsetPx is measured from zoneTop (scroll position).
-    let boundaryOffsetPx = cutline; // default: no boundary, everything is topSurface
+    let boundaryOffsetPx = cutline; // default: no boundary
     if (topSurface !== bottomSurface) {
-      let boundaryRegion: SurfaceRegion | null = null;
-      // Walk sorted surfaceRegions. For overlapping/nested regions,
-      // later entries win — don't break, keep walking.
       for (const region of this.surfaceRegions) {
         if (region.startPx > zoneTop && region.startPx < zoneBottom) {
-          boundaryRegion = region;
-          // Don't break: a nested region starting later may be more specific
+          boundaryOffsetPx = region.startPx - zoneTop;
+          // Don't break: nested regions may override
         }
-      }
-      if (boundaryRegion) {
-        // Real-time position: read the element's CURRENT viewport-relative top.
-        // This is one getBoundingClientRect per frame, only when a boundary is
-        // visible in the header zone — typically a few frames per section transition.
-        const liveTop = boundaryRegion.el.getBoundingClientRect().top;
-        boundaryOffsetPx = liveTop;
       }
     }
 
