@@ -774,6 +774,7 @@ export class ScrollEngine {
           startPx: rect.top + scrollY,
           endPx: rect.bottom + scrollY,
           surface,
+          el,
         });
       }
     });
@@ -810,7 +811,11 @@ export class ScrollEngine {
    * visible edge (safe-area, sub-pixel, container padding, etc.).
    *
    * Writes 8 CSS vars (only when values change).
-   * Uses cached geometry — never queries DOM layout per frame.
+   *
+   * Uses cached region data for coarse detection, then validates the
+   * boundary position against the DOM element's real-time rect. This
+   * prevents stale measurements from causing a visible offset between
+   * the gradient split and the actual content background edge.
    */
   private updateHeaderSurface(): void {
     const h = this.cachedHeaderTotalH;
@@ -824,7 +829,7 @@ export class ScrollEngine {
     const zoneTop = sy;
     const zoneBottom = cutlineDocY;
 
-    // Surface at zone edges
+    // Surface at zone edges (uses cached regions — fine for color detection)
     const topSurface = this.surfaceAtY(zoneTop + 1);
     const bottomSurface = this.surfaceAtY(zoneBottom - 1);
 
@@ -832,13 +837,21 @@ export class ScrollEngine {
     // boundaryOffsetPx is measured from zoneTop (scroll position).
     let boundaryOffsetPx = cutline; // default: no boundary, everything is topSurface
     if (topSurface !== bottomSurface) {
+      let boundaryRegion: SurfaceRegion | null = null;
       // Walk sorted surfaceRegions. For overlapping/nested regions,
       // later entries win — don't break, keep walking.
       for (const region of this.surfaceRegions) {
         if (region.startPx > zoneTop && region.startPx < zoneBottom) {
-          boundaryOffsetPx = region.startPx - zoneTop;
+          boundaryRegion = region;
           // Don't break: a nested region starting later may be more specific
         }
+      }
+      if (boundaryRegion) {
+        // Real-time position: read the element's CURRENT viewport-relative top.
+        // This is one getBoundingClientRect per frame, only when a boundary is
+        // visible in the header zone — typically a few frames per section transition.
+        const liveTop = boundaryRegion.el.getBoundingClientRect().top;
+        boundaryOffsetPx = liveTop;
       }
     }
 

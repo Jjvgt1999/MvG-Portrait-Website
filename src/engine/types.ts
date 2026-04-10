@@ -10,6 +10,8 @@ export type SurfaceRegion = {
   startPx: number;
   endPx: number;
   surface: HeaderSurface;
+  /** DOM element reference for real-time position validation. */
+  el: HTMLElement;
 };
 
 export type PageGeometry = {
