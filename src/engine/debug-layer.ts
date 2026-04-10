@@ -6,11 +6,13 @@ import type { ChapterGeometry } from './types';
  * Renders:
  *   - hairlines at each chapter startN (blue)
  *   - hairlines at each page startN (grey, dotted)
- *   - readout panel in top-left with live state
+ *   - fixed boundary line across full viewport (red)
+ *   - readout panel in top-left with live state + boundary info
  */
 export class DebugLayer {
   private hairlinesEl: HTMLDivElement;
   private panelEl: HTMLDivElement;
+  private boundaryLineEl: HTMLDivElement;
 
   constructor(
     private engine: ScrollEngine,
@@ -20,6 +22,11 @@ export class DebugLayer {
     this.hairlinesEl = document.createElement('div');
     this.hairlinesEl.className = 'debug-hairlines';
     this.contentEl.appendChild(this.hairlinesEl);
+
+    // Full-viewport boundary line — fixed positioning, same coordinate space as SVG overlay
+    this.boundaryLineEl = document.createElement('div');
+    this.boundaryLineEl.className = 'debug-boundary-line';
+    document.body.appendChild(this.boundaryLineEl);
 
     // Readout panel — fixed positioning
     this.panelEl = document.createElement('div');
@@ -36,6 +43,10 @@ export class DebugLayer {
         <dt>timelineMode</dt><dd data-key="timelineMode">collapsed</dd>
         <dt>zoomScale</dt><dd data-key="zoomScale">1.00</dd>
         <dt>scrubbing</dt><dd data-key="scrubbing">false</dd>
+        <dt>boundaryGlobal</dt><dd data-key="boundaryGlobal">—</dd>
+        <dt>boundaryLocal</dt><dd data-key="boundaryLocal">—</dd>
+        <dt>boundaryRatio</dt><dd data-key="boundaryRatio">—</dd>
+        <dt>safeTop</dt><dd data-key="safeTop">—</dd>
       </dl>
     `;
     document.body.appendChild(this.panelEl);
@@ -44,6 +55,7 @@ export class DebugLayer {
   destroy(): void {
     this.hairlinesEl.remove();
     this.panelEl.remove();
+    this.boundaryLineEl.remove();
   }
 
   refresh(): void {
@@ -89,5 +101,22 @@ export class DebugLayer {
     set('timelineMode', s.timelineMode);
     set('zoomScale', s.zoomScale.toFixed(3));
     set('scrubbing', s.scrubbing ? 'true' : 'false');
+
+    // Boundary debug values — read from the same CSS vars the engine writes
+    const rootStyle = getComputedStyle(document.documentElement);
+    const globalPx = rootStyle.getPropertyValue('--header-boundary-px-global').trim();
+    const localPx = rootStyle.getPropertyValue('--header-boundary-px-local').trim();
+    const globalVal = parseFloat(globalPx) || 0;
+    const localVal = parseFloat(localPx) || 0;
+    const headerRowH = 48;
+    const ratio = headerRowH > 0 ? Math.max(0, Math.min(1, localVal / headerRowH)) : 1;
+
+    set('boundaryGlobal', globalVal.toFixed(1) + 'px');
+    set('boundaryLocal', localVal.toFixed(1) + 'px');
+    set('boundaryRatio', ratio.toFixed(3));
+    set('safeTop', (globalVal - localVal).toFixed(1) + 'px');
+
+    // Position the full-viewport boundary line in fixed viewport coordinates
+    this.boundaryLineEl.style.top = `${globalVal}px`;
   }
 }

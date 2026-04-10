@@ -59,6 +59,16 @@ function makeInitialState(): EngineState {
   };
 }
 
+/**
+ * Structured refs to the 4 <stop> elements in each SVG header gradient.
+ * stops[0] = top color (offset 0), stops[1] = top color at boundary,
+ * stops[2] = bottom color at boundary, stops[3] = bottom color (offset 1).
+ */
+export interface HeaderSVGStops {
+  fgStops: [SVGStopElement, SVGStopElement, SVGStopElement, SVGStopElement];
+  chapterStops: [SVGStopElement, SVGStopElement, SVGStopElement, SVGStopElement];
+}
+
 export class ScrollEngine {
   state: EngineState = makeInitialState();
   chapters: ChapterGeometry[] = [];
@@ -66,13 +76,14 @@ export class ScrollEngine {
   surfaceRegions: SurfaceRegion[] = [];
 
   // Header DOM ref caches (set on init + resize, NOT queried per frame)
-  private occluderEl: HTMLElement | null = null;
-  private siteHeaderEl: HTMLElement | null = null;
-  private headerRowEl: HTMLElement | null = null;
+  private surfaceExtEl: HTMLElement | null = null;
   private cachedHeaderTotalH = 48;
   private cachedSafeTop = 0;
   private cachedHeaderRowH = 48;
   private lastHeaderVars: Record<string, string> = {};
+
+  // SVG gradient stop refs — registered/unregistered by MobileHeaderSVG
+  private headerSVGStops: HeaderSVGStops | null = null;
 
   // Springs
   readonly playheadSpring = new Spring(0, 180, 28);
@@ -342,6 +353,7 @@ export class ScrollEngine {
     this.debugLayer?.destroy();
 
     this.contentEl = null;
+    this.headerSVGStops = null;
     this.chapters = [];
     this.state = makeInitialState();
     this.subscribers.clear();
@@ -759,26 +771,33 @@ export class ScrollEngine {
 
   /** Cache DOM refs for header elements. Called on init + geometry update. */
   private cacheHeaderDOMRefs(): void {
-    this.occluderEl = document.getElementById('header-occluder');
-    this.siteHeaderEl = document.getElementById('site-header');
-    this.headerRowEl = document.querySelector('.header-row');
+    this.surfaceExtEl = document.getElementById('surface-extension');
   }
 
   /** Measure real rendered header geometry. Called on init + resize. */
   private measureHeaderGeometry(): void {
     this.cachedHeaderTotalH =
-      this.occluderEl?.getBoundingClientRect().height ?? 48;
-    this.cachedSafeTop = this.siteHeaderEl
-      ? parseFloat(getComputedStyle(this.siteHeaderEl).paddingTop) || 0
-      : 0;
-    this.cachedHeaderRowH =
-      this.headerRowEl?.getBoundingClientRect().height ?? 48;
+      this.surfaceExtEl?.getBoundingClientRect().height ?? 48;
+    // --header-height is a fixed 48px; safe-top is the difference
+    this.cachedHeaderRowH = 48;
+    this.cachedSafeTop = Math.max(0, this.cachedHeaderTotalH - this.cachedHeaderRowH);
+  }
+
+  // ── SVG gradient stop registration API ──
+
+  registerHeaderSVGStops(stops: HeaderSVGStops): void {
+    this.headerSVGStops = stops;
+  }
+
+  unregisterHeaderSVGStops(): void {
+    this.headerSVGStops = null;
   }
 
   /**
    * Boundary-driven header surface detection.
    * Computes topSurface, bottomSurface, and boundary position within the
-   * header zone. Writes 8 CSS vars (only when values change).
+   * header zone. Writes CSS vars for the surface extension gradient AND
+   * imperatively updates SVG gradient stops — both in the same render cadence.
    * Uses cached geometry — never queries DOM layout per frame.
    */
   private updateHeaderSurface(): void {
@@ -811,6 +830,14 @@ export class ScrollEngine {
       Math.min(this.cachedHeaderRowH, globalBoundaryPx - this.cachedSafeTop)
     );
 
+    // Snap local boundary to one decimal for pixel-grid consistency
+    const localSnapped = parseFloat(localBoundaryPx.toFixed(1));
+    // Clamp ratio to [0, 1]
+    const boundaryRatio = Math.max(
+      0,
+      Math.min(1, this.cachedHeaderRowH > 0 ? localSnapped / this.cachedHeaderRowH : 1)
+    );
+
     // Build var map — only write changed values
     const vars: Record<string, string> = {
       '--header-top-surface-bg': SURFACE_COLORS[topSurface],
@@ -820,7 +847,7 @@ export class ScrollEngine {
       '--header-top-chapter': SURFACE_CHAPTER[topSurface],
       '--header-bottom-chapter': SURFACE_CHAPTER[bottomSurface],
       '--header-boundary-px-global': globalBoundaryPx.toFixed(1) + 'px',
-      '--header-boundary-px-local': localBoundaryPx.toFixed(1) + 'px',
+      '--header-boundary-px-local': localSnapped + 'px',
     };
     const root = document.documentElement.style;
     for (const [k, v] of Object.entries(vars)) {
@@ -828,6 +855,31 @@ export class ScrollEngine {
         root.setProperty(k, v);
         this.lastHeaderVars[k] = v;
       }
+    }
+
+    // ── SVG gradient stop updates (same render cadence as CSS vars) ──
+    if (this.headerSVGStops) {
+      const ratioStr = String(boundaryRatio);
+      const topFg = SURFACE_FG[topSurface];
+      const bottomFg = SURFACE_FG[bottomSurface];
+      const topCh = SURFACE_CHAPTER[topSurface];
+      const bottomCh = SURFACE_CHAPTER[bottomSurface];
+
+      const { fgStops, chapterStops } = this.headerSVGStops;
+
+      fgStops[0].setAttribute('stop-color', topFg);
+      fgStops[1].setAttribute('offset', ratioStr);
+      fgStops[1].setAttribute('stop-color', topFg);
+      fgStops[2].setAttribute('offset', ratioStr);
+      fgStops[2].setAttribute('stop-color', bottomFg);
+      fgStops[3].setAttribute('stop-color', bottomFg);
+
+      chapterStops[0].setAttribute('stop-color', topCh);
+      chapterStops[1].setAttribute('offset', ratioStr);
+      chapterStops[1].setAttribute('stop-color', topCh);
+      chapterStops[2].setAttribute('offset', ratioStr);
+      chapterStops[2].setAttribute('stop-color', bottomCh);
+      chapterStops[3].setAttribute('stop-color', bottomCh);
     }
 
     // Discrete state for React subscribers

@@ -5,8 +5,8 @@ import { TimelineNav, useTimelineRefs } from '@/components/layout/TimelineNav';
 import { BlockerLayer } from '@/components/layout/BlockerLayer';
 import { TransitionOverlay } from '@/components/layout/TransitionOverlay';
 import { CurrentChapterIndicator } from '@/components/layout/CurrentChapterIndicator';
-import { MobileHeaderOccluder } from '@/components/layout/MobileHeaderOccluder';
-import { MobileHeader } from '@/components/layout/MobileHeader';
+import { SurfaceExtension } from '@/components/layout/SurfaceExtension';
+import { MobileHeaderSVG } from '@/components/layout/MobileHeaderSVG';
 import { Hero } from '@/components/sections/Hero';
 import { OpeningQuote } from '@/components/sections/OpeningQuote';
 import { Chapter } from '@/components/sections/Chapter';
@@ -77,8 +77,8 @@ export default function App() {
       <BlockerLayer />
       <CurrentChapterIndicator />
       <TimelineNav refs={timelineRefs} />
-      <MobileHeaderOccluder />
-      <MobileHeader />
+      <SurfaceExtension />
+      <MobileHeaderSVG />
     </>
   );
 }
