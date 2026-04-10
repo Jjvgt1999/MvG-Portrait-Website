@@ -67,7 +67,6 @@ export class ScrollEngine {
 
   // Header DOM ref caches (set on init + resize, NOT queried per frame)
   private occluderEl: HTMLElement | null = null;
-  private siteHeaderEl: HTMLElement | null = null;
   private cachedHeaderTotalH = 48;
   private cachedSafeTop = 0;
   private lastHeaderVars: Record<string, string> = {};
@@ -778,7 +777,6 @@ export class ScrollEngine {
   /** Cache DOM refs for header elements. Called on init + geometry update. */
   private cacheHeaderDOMRefs(): void {
     this.occluderEl = document.getElementById('header-occluder');
-    this.siteHeaderEl = document.getElementById('site-header');
     // SVG foreground refs
     this.headerFgSvg = document.getElementById('header-fg-svg') as SVGSVGElement | null;
     this.fgGradient = document.getElementById('header-fg-gradient') as SVGLinearGradientElement | null;
