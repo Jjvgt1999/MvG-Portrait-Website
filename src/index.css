@@ -524,7 +524,10 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
 
 @media (max-width: 767px) {
 
-  /* ── Layer 2: Dual-surface occluder ── */
+  /* ── Layer 2: Single-element occluder with hard gradient ──
+   * Uses a linear-gradient with a hard stop at the boundary instead of
+   * two clip-path elements. This eliminates sub-pixel seams from
+   * independent clip-path rasterization on the GPU. */
   #header-occluder {
     display: block;
     position: fixed;
@@ -534,22 +537,11 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
     height: var(--header-total-height);
     z-index: var(--header-z-occluder);
     pointer-events: none;
-    overflow: hidden;
-  }
-
-  .occluder-surface {
-    position: absolute;
-    inset: 0;
-  }
-
-  .occluder-top {
-    background: var(--header-top-surface-bg);
-    clip-path: inset(0 0 calc(var(--header-total-height) - var(--header-boundary-px-global)) 0);
-  }
-
-  .occluder-bottom {
-    background: var(--header-bottom-surface-bg);
-    clip-path: inset(var(--header-boundary-px-global) 0 0 0);
+    background: linear-gradient(
+      to bottom,
+      var(--header-top-surface-bg) var(--header-boundary-px-global),
+      var(--header-bottom-surface-bg) var(--header-boundary-px-global)
+    );
   }
 
   /* ── Layer 3: Transparent header chrome ── */

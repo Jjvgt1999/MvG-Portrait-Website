@@ -73,6 +73,7 @@ export class ScrollEngine {
   private cachedHeaderTotalH = 48;
   private cachedSafeTop = 0;
   private cachedHeaderRowH = 48;
+  private cachedDPR = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
   private lastHeaderVars: Record<string, string> = {};
 
   /**
@@ -797,6 +798,7 @@ export class ScrollEngine {
       : 0;
     this.cachedHeaderRowH =
       this.headerRowEl?.getBoundingClientRect().height ?? 48;
+    this.cachedDPR = window.devicePixelRatio || 1;
   }
 
   /**
@@ -840,12 +842,16 @@ export class ScrollEngine {
       }
     }
 
-    // Clamp to valid ranges within the occluder's rendered height
-    const globalBoundaryPx = Math.max(0, Math.min(h, boundaryOffsetPx));
-    const localBoundaryPx = Math.max(
-      0,
-      Math.min(this.cachedHeaderRowH, globalBoundaryPx - this.cachedSafeTop)
-    );
+    // Clamp to valid ranges and snap to device-pixel grid.
+    // Device-pixel snapping ensures the gradient hard stop falls exactly on a
+    // device-pixel row, preventing sub-pixel anti-aliasing at the boundary.
+    const dpr = this.cachedDPR;
+    const globalBoundaryPx =
+      Math.round(Math.max(0, Math.min(h, boundaryOffsetPx)) * dpr) / dpr;
+    const localBoundaryPx =
+      Math.round(
+        Math.max(0, Math.min(this.cachedHeaderRowH, globalBoundaryPx - this.cachedSafeTop)) * dpr
+      ) / dpr;
 
     // Build var map — only write changed values
     const vars: Record<string, string> = {
@@ -855,8 +861,8 @@ export class ScrollEngine {
       '--header-bottom-fg': SURFACE_FG[bottomSurface],
       '--header-top-chapter': SURFACE_CHAPTER[topSurface],
       '--header-bottom-chapter': SURFACE_CHAPTER[bottomSurface],
-      '--header-boundary-px-global': globalBoundaryPx.toFixed(1) + 'px',
-      '--header-boundary-px-local': localBoundaryPx.toFixed(1) + 'px',
+      '--header-boundary-px-global': globalBoundaryPx.toFixed(3) + 'px',
+      '--header-boundary-px-local': localBoundaryPx.toFixed(3) + 'px',
     };
     const root = document.documentElement.style;
     for (const [k, v] of Object.entries(vars)) {
