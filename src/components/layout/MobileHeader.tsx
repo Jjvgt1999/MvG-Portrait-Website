@@ -1,28 +1,77 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useEngine } from '@/hooks/useEngine';
 import { chapters } from '@/data/chapters';
 import { scrollEngine } from '@/engine/scroll-engine';
 
 /**
- * Layer 3: Transparent header chrome with dual foreground layers.
+ * Layer 3: Single-pass SVG header foreground.
  *
- * Each visible element (chapter text, menu icon) renders two stacked
- * color versions — one for the top surface, one for the bottom surface.
- * Both are clipped at --header-boundary-px-local so the color split
- * aligns with the occluder's surface split.
+ * One inline SVG spans the full header zone. Every visible element
+ * (chapter label, chapter title, menu icon) exists exactly once,
+ * painted by shared hard-stop linearGradients whose stop-colors
+ * are driven by CSS custom properties and whose stop offsets are
+ * set imperatively by the scroll engine per frame.
  *
+ * NO dual-pass clipping. NO duplicate DOM copies.
  * NO color transitions. The boundary moves with scroll geometry.
  */
 
-function MenuSVG() {
+/**
+ * Memoised gradient defs — the engine updates stop offsets + gradient y2
+ * imperatively; React.memo ensures these DOM nodes are never reconciled
+ * back to initial values. Stop colors are driven by CSS custom properties.
+ */
+const HeaderGradients = memo(function HeaderGradients() {
   return (
-    <svg width="20" height="16" viewBox="0 0 20 16" fill="none" aria-hidden="true">
-      <line x1="0" y1="1" x2="20" y2="1" stroke="currentColor" strokeWidth="1.5" />
-      <line x1="0" y1="8" x2="20" y2="8" stroke="currentColor" strokeWidth="1.5" />
-      <line x1="0" y1="15" x2="20" y2="15" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
+    <defs>
+      <linearGradient
+        id="header-fg-gradient"
+        gradientUnits="userSpaceOnUse"
+        x1="0"
+        y1="0"
+        x2="0"
+        y2="48"
+      >
+        <stop id="fg-stop-1" offset="0%" />
+        <stop id="fg-stop-2" offset="100%" />
+        <stop id="fg-stop-3" offset="100%" />
+        <stop id="fg-stop-4" offset="100%" />
+      </linearGradient>
+      <linearGradient
+        id="header-chapter-gradient"
+        gradientUnits="userSpaceOnUse"
+        x1="0"
+        y1="0"
+        x2="0"
+        y2="48"
+      >
+        <stop id="chapter-stop-1" offset="0%" />
+        <stop id="chapter-stop-2" offset="100%" />
+        <stop id="chapter-stop-3" offset="100%" />
+        <stop id="chapter-stop-4" offset="100%" />
+      </linearGradient>
+    </defs>
   );
-}
+});
+
+/**
+ * Memoised menu icon — transform is set by the engine on init/resize;
+ * React.memo prevents reconciliation from resetting it.
+ */
+const HeaderMenuIcon = memo(function HeaderMenuIcon() {
+  return (
+    <g
+      id="header-menu-icon"
+      stroke="url(#header-fg-gradient)"
+      fill="none"
+      strokeWidth="1.5"
+    >
+      <line x1="0" y1="1" x2="20" y2="1" />
+      <line x1="0" y1="8" x2="20" y2="8" />
+      <line x1="0" y1="15" x2="20" y2="15" />
+    </g>
+  );
+});
 
 export function MobileHeader() {
   const activeId = useEngine((s) => s.activeChapterId);
@@ -76,51 +125,61 @@ export function MobileHeader() {
   const chapter = chapters.find((c) => c.id === displayedId);
   const showChapterText = pastHero && phase === 'visible';
 
-  // Chapter text content (rendered twice — top layer + bottom layer)
   const chapterLabel = chapter?.label || '';
-  const chapterTitle = chapter?.title || '';
+  const chapterTitle = (chapter?.title || '').toUpperCase();
 
   return (
     <>
-      {/* Layer 3: transparent header chrome */}
-      <header id="site-header">
-        <div className="header-row">
-          {/* Chapter text — dual foreground layers */}
-          <div
-            className="header-chapter-wrap"
-            data-visible={showChapterText ? 'true' : 'false'}
-          >
-            <span className="header-layer header-layer-top chapter-top">
-              {chapterLabel && (
-                <span className="header-chapter-label">{chapterLabel}</span>
-              )}
-              <span className="header-chapter-title">{chapterTitle}</span>
-            </span>
-            <span className="header-layer header-layer-bottom chapter-bottom">
-              {chapterLabel && (
-                <span className="header-chapter-label">{chapterLabel}</span>
-              )}
-              <span className="header-chapter-title">{chapterTitle}</span>
-            </span>
-          </div>
+      {/* Layer 3: single-pass SVG header foreground */}
+      <header id="site-header" aria-label="Site header">
+        <svg
+          id="header-fg-svg"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
+          data-chapter-visible={showChapterText ? 'true' : 'false'}
+        >
+          <HeaderGradients />
 
-          {/* Menu icon — dual foreground layers */}
-          <button
-            className="header-menu"
-            onClick={openToc}
-            aria-label="Inhaltsverzeichnis"
-            aria-expanded={tocOpen}
-          >
-            <span className="header-menu-wrap">
-              <span className="header-layer header-layer-top menu-top">
-                <MenuSVG />
-              </span>
-              <span className="header-layer header-layer-bottom menu-bottom">
-                <MenuSVG />
-              </span>
-            </span>
-          </button>
-        </div>
+          {/* Chapter text — single instance, fade via CSS on <g> */}
+          <g id="header-chapter-group">
+            <text
+              id="header-chapter-label"
+              fill="url(#header-chapter-gradient)"
+              textAnchor="middle"
+              x="50%"
+              dominantBaseline="auto"
+              fontFamily="'EB Garamond', Georgia, serif"
+              fontStyle="italic"
+              fontSize="13.6"
+              letterSpacing="0.01em"
+            >
+              {chapterLabel}
+            </text>
+            <text
+              id="header-chapter-title"
+              fill="url(#header-fg-gradient)"
+              textAnchor="middle"
+              x="50%"
+              dominantBaseline="auto"
+              fontFamily="'EB Garamond', Georgia, serif"
+              fontSize="10.4"
+              letterSpacing="0.08em"
+              opacity="0.65"
+            >
+              {chapterTitle}
+            </text>
+          </g>
+
+          <HeaderMenuIcon />
+        </svg>
+
+        {/* Invisible HTML hit targets — accessibility + pointer events */}
+        <button
+          className="header-hit-target header-hit-target-menu"
+          onClick={openToc}
+          aria-label="Inhaltsverzeichnis"
+          aria-expanded={tocOpen}
+        />
       </header>
 
       {/* TOC drawer overlay */}

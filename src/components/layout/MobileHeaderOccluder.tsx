@@ -1,17 +1,15 @@
 /**
- * Layer 2: Dual-surface occluder.
- * Two child divs fill the full header zone, each clipped at the boundary.
- * The top child shows the surface above the boundary; the bottom child
- * shows the surface below. When no boundary exists, both are the same
- * color and the split is invisible.
+ * Layer 2: Single-element occluder with hard-stop CSS gradient.
  *
- * Colors + clip driven by CSS custom properties written by the engine.
+ * A single div fills the full header zone. The background is a
+ * hard-stop linear-gradient that splits at --header-boundary-px-global,
+ * using --header-top-surface-bg above and --header-bottom-surface-bg below.
+ *
+ * When no boundary exists, both colors are the same and the split
+ * is invisible.
+ *
+ * Colors + boundary driven by CSS custom properties written by the engine.
  */
 export function MobileHeaderOccluder() {
-  return (
-    <div id="header-occluder" aria-hidden="true">
-      <div className="occluder-surface occluder-top" />
-      <div className="occluder-surface occluder-bottom" />
-    </div>
-  );
+  return <div id="header-occluder" aria-hidden="true" />;
 }

@@ -68,11 +68,30 @@ export class ScrollEngine {
   // Header DOM ref caches (set on init + resize, NOT queried per frame)
   private occluderEl: HTMLElement | null = null;
   private siteHeaderEl: HTMLElement | null = null;
-  private headerRowEl: HTMLElement | null = null;
   private cachedHeaderTotalH = 48;
   private cachedSafeTop = 0;
-  private cachedHeaderRowH = 48;
   private lastHeaderVars: Record<string, string> = {};
+
+  // SVG foreground refs (cached on init + resize)
+  private headerFgSvg: SVGSVGElement | null = null;
+  private fgGradient: SVGLinearGradientElement | null = null;
+  private chapterGradient: SVGLinearGradientElement | null = null;
+  private fgStop2: SVGStopElement | null = null;
+  private fgStop3: SVGStopElement | null = null;
+  private chapterStop2: SVGStopElement | null = null;
+  private chapterStop3: SVGStopElement | null = null;
+  private menuIconG: SVGGElement | null = null;
+  private chapterLabelText: SVGTextElement | null = null;
+  private chapterTitleText: SVGTextElement | null = null;
+
+  // Header debug state (public for debug layer)
+  headerDebugState = {
+    topSurface: 'paper' as HeaderSurface,
+    bottomSurface: 'paper' as HeaderSurface,
+    globalBoundaryPx: 48,
+    headerTotalH: 48,
+    boundaryN: 1,
+  };
 
   // Springs
   readonly playheadSpring = new Spring(0, 180, 28);
@@ -180,7 +199,6 @@ export class ScrollEngine {
     root.setProperty('--header-top-chapter', paperCh);
     root.setProperty('--header-bottom-chapter', paperCh);
     root.setProperty('--header-boundary-px-global', this.cachedHeaderTotalH + 'px');
-    root.setProperty('--header-boundary-px-local', this.cachedHeaderRowH + 'px');
     rootAttrs.setPastHero(false);
     rootAttrs.setTimelineReveal(false);
 
@@ -761,25 +779,75 @@ export class ScrollEngine {
   private cacheHeaderDOMRefs(): void {
     this.occluderEl = document.getElementById('header-occluder');
     this.siteHeaderEl = document.getElementById('site-header');
-    this.headerRowEl = document.querySelector('.header-row');
+    // SVG foreground refs
+    this.headerFgSvg = document.getElementById('header-fg-svg') as SVGSVGElement | null;
+    this.fgGradient = document.getElementById('header-fg-gradient') as SVGLinearGradientElement | null;
+    this.chapterGradient = document.getElementById('header-chapter-gradient') as SVGLinearGradientElement | null;
+    this.fgStop2 = document.getElementById('fg-stop-2') as SVGStopElement | null;
+    this.fgStop3 = document.getElementById('fg-stop-3') as SVGStopElement | null;
+    this.chapterStop2 = document.getElementById('chapter-stop-2') as SVGStopElement | null;
+    this.chapterStop3 = document.getElementById('chapter-stop-3') as SVGStopElement | null;
+    this.menuIconG = document.getElementById('header-menu-icon') as SVGGElement | null;
+    this.chapterLabelText = document.getElementById('header-chapter-label') as SVGTextElement | null;
+    this.chapterTitleText = document.getElementById('header-chapter-title') as SVGTextElement | null;
   }
+
+  private static readonly HEADER_ROW_H = 48; // matches --header-height
 
   /** Measure real rendered header geometry. Called on init + resize. */
   private measureHeaderGeometry(): void {
     this.cachedHeaderTotalH =
-      this.occluderEl?.getBoundingClientRect().height ?? 48;
-    this.cachedSafeTop = this.siteHeaderEl
-      ? parseFloat(getComputedStyle(this.siteHeaderEl).paddingTop) || 0
-      : 0;
-    this.cachedHeaderRowH =
-      this.headerRowEl?.getBoundingClientRect().height ?? 48;
+      this.occluderEl?.getBoundingClientRect().height ?? ScrollEngine.HEADER_ROW_H;
+    // Safe area = total height minus the fixed 48px header row
+    this.cachedSafeTop = Math.max(0, this.cachedHeaderTotalH - ScrollEngine.HEADER_ROW_H);
+    this.layoutHeaderFgSvg();
+  }
+
+  /**
+   * Position SVG elements in header-space. Called on init + resize.
+   * Sets viewBox, gradient extents, text positions, and icon transform.
+   */
+  private layoutHeaderFgSvg(): void {
+    const svg = this.headerFgSvg;
+    if (!svg) return;
+
+    const w = window.innerWidth;
+    const h = this.cachedHeaderTotalH;
+    const safeTop = this.cachedSafeTop;
+    const rowH = h - safeTop;
+    const hPad = 14; // matches --header-horizontal-padding
+
+    // SVG viewport — pixel coordinates match CSS pixels
+    svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+
+    // Gradient y2 = full header height
+    const hStr = h.toString();
+    if (this.fgGradient) this.fgGradient.setAttribute('y2', hStr);
+    if (this.chapterGradient) this.chapterGradient.setAttribute('y2', hStr);
+
+    // Chapter text — centered vertically in the header row below safe area
+    const labelY = (safeTop + rowH / 2 - 4).toFixed(1);
+    const titleY = (safeTop + rowH / 2 + 11).toFixed(1);
+    if (this.chapterLabelText) this.chapterLabelText.setAttribute('y', labelY);
+    if (this.chapterTitleText) this.chapterTitleText.setAttribute('y', titleY);
+
+    // Menu icon — right-aligned, centered in 44×headerRow area
+    const menuX = w - hPad - 44 + 12; // (44 − 20) / 2 = 12 offset inside button
+    const menuY = safeTop + (rowH - 16) / 2;
+    if (this.menuIconG) {
+      this.menuIconG.setAttribute('transform', `translate(${menuX},${menuY})`);
+    }
+
+    // Update debug state
+    this.headerDebugState.headerTotalH = h;
   }
 
   /**
    * Boundary-driven header surface detection.
    * Computes topSurface, bottomSurface, and boundary position within the
-   * header zone. Writes 8 CSS vars (only when values change).
-   * Uses cached geometry — never queries DOM layout per frame.
+   * header zone. Writes CSS vars for occluder + SVG stop-colors, and
+   * imperatively updates SVG gradient stop offsets. Only writes when
+   * values change. Uses cached geometry — never queries DOM layout per frame.
    */
   private updateHeaderSurface(): void {
     const h = this.cachedHeaderTotalH;
@@ -804,14 +872,11 @@ export class ScrollEngine {
       }
     }
 
-    // Clamp to valid ranges
+    // Clamp to valid range
     const globalBoundaryPx = Math.max(0, Math.min(h, boundaryOffsetPx));
-    const localBoundaryPx = Math.max(
-      0,
-      Math.min(this.cachedHeaderRowH, globalBoundaryPx - this.cachedSafeTop)
-    );
 
-    // Build var map — only write changed values
+    // Build CSS var map — only write changed values
+    // (occluder uses CSS vars for gradient; SVG stop-colors also read these)
     const vars: Record<string, string> = {
       '--header-top-surface-bg': SURFACE_COLORS[topSurface],
       '--header-bottom-surface-bg': SURFACE_COLORS[bottomSurface],
@@ -820,7 +885,6 @@ export class ScrollEngine {
       '--header-top-chapter': SURFACE_CHAPTER[topSurface],
       '--header-bottom-chapter': SURFACE_CHAPTER[bottomSurface],
       '--header-boundary-px-global': globalBoundaryPx.toFixed(1) + 'px',
-      '--header-boundary-px-local': localBoundaryPx.toFixed(1) + 'px',
     };
     const root = document.documentElement.style;
     for (const [k, v] of Object.entries(vars)) {
@@ -829,6 +893,22 @@ export class ScrollEngine {
         this.lastHeaderVars[k] = v;
       }
     }
+
+    // Imperatively update SVG gradient stop offsets (cached, only when changed)
+    const boundaryPct = `${((globalBoundaryPx / h) * 100).toFixed(2)}%`;
+    if (this.lastHeaderVars['__boundaryPct'] !== boundaryPct) {
+      this.lastHeaderVars['__boundaryPct'] = boundaryPct;
+      if (this.fgStop2) this.fgStop2.setAttribute('offset', boundaryPct);
+      if (this.fgStop3) this.fgStop3.setAttribute('offset', boundaryPct);
+      if (this.chapterStop2) this.chapterStop2.setAttribute('offset', boundaryPct);
+      if (this.chapterStop3) this.chapterStop3.setAttribute('offset', boundaryPct);
+    }
+
+    // Update debug state
+    this.headerDebugState.topSurface = topSurface;
+    this.headerDebugState.bottomSurface = bottomSurface;
+    this.headerDebugState.globalBoundaryPx = globalBoundaryPx;
+    this.headerDebugState.boundaryN = h > 0 ? globalBoundaryPx / h : 1;
 
     // Discrete state for React subscribers
     if (bottomSurface !== this.state.headerSurface) {

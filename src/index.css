@@ -31,7 +31,6 @@
     --header-top-chapter: #1d6fe5;
     --header-bottom-chapter: #7cb4ff;
     --header-boundary-px-global: 48px;
-    --header-boundary-px-local: 48px;
 
     --header-z-occluder: 40;
     --header-z-ui: 50;
@@ -507,13 +506,13 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
 /* ==================================================================
  * Boundary-driven mobile header (< 768px only)
  *
- * Layer 2: #header-occluder — dual-surface, clipped at boundary
- * Layer 3: #site-header — transparent chrome, dual-color foreground layers
+ * Layer 2: #header-occluder — hard-stop CSS gradient background
+ * Layer 3: #site-header — single SVG foreground + HTML hit targets
  *
- * Both layers clip at the same physical boundary line, mapped to each
- * layer's own coordinate space:
- *   --header-boundary-px-global  → occluder (full zone incl. safe area)
- *   --header-boundary-px-local   → foreground elements (header row only)
+ * Both layers split at --header-boundary-px-global.
+ * Foreground: SVG hard-stop gradients; stop-colors from CSS vars,
+ *             stop offsets set imperatively by the engine per frame.
+ * Occluder:   CSS linear-gradient with identical hard stop.
  *
  * NO transitions. All color changes are geometry-driven per frame.
  * ================================================================== */
@@ -524,7 +523,7 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
 
 @media (max-width: 767px) {
 
-  /* ── Layer 2: Dual-surface occluder ── */
+  /* ── Layer 2: Occluder — hard-stop gradient background ── */
   #header-occluder {
     display: block;
     position: fixed;
@@ -534,25 +533,16 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
     height: var(--header-total-height);
     z-index: var(--header-z-occluder);
     pointer-events: none;
-    overflow: hidden;
+    background: linear-gradient(
+      to bottom,
+      var(--header-top-surface-bg) 0px,
+      var(--header-top-surface-bg) var(--header-boundary-px-global),
+      var(--header-bottom-surface-bg) var(--header-boundary-px-global),
+      var(--header-bottom-surface-bg) 100%
+    );
   }
 
-  .occluder-surface {
-    position: absolute;
-    inset: 0;
-  }
-
-  .occluder-top {
-    background: var(--header-top-surface-bg);
-    clip-path: inset(0 0 calc(var(--header-total-height) - var(--header-boundary-px-global)) 0);
-  }
-
-  .occluder-bottom {
-    background: var(--header-bottom-surface-bg);
-    clip-path: inset(var(--header-boundary-px-global) 0 0 0);
-  }
-
-  /* ── Layer 3: Transparent header chrome ── */
+  /* ── Layer 3: SVG header foreground ── */
   #site-header {
     display: block;
     position: fixed;
@@ -560,133 +550,62 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
     left: 0;
     right: 0;
     height: var(--header-total-height);
-    padding-top: var(--safe-top);
     z-index: var(--header-z-ui);
     background: transparent;
     pointer-events: none;
-    /* ZERO visible surface */
   }
 
-  .header-row {
-    height: var(--header-height);
-    display: grid;
-    grid-template-columns: 1fr 44px;
-    align-items: center;
-    padding: 0 var(--header-horizontal-padding);
-    position: relative;
-  }
-
-  .header-row > * {
-    pointer-events: auto;
-  }
-
-  /* ── Dual foreground layers (chapter + menu) ── */
-  .header-chapter-wrap,
-  .header-menu-wrap {
-    position: relative;
-    height: 100%;
-    display: flex;
-    align-items: center;
-  }
-
-  .header-chapter-wrap {
-    justify-self: center;
-    justify-content: center;
-    overflow: hidden;
-  }
-
-  /* Top layer is position:relative to establish the wrapper's size.
-     Bottom layer is position:absolute, overlaid exactly on top. */
-  .header-layer-top {
-    position: relative;
-    display: flex;
-    align-items: center;
-  }
-
-  .header-layer-bottom {
+  /* ── SVG fills the header zone ── */
+  #header-fg-svg {
     position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
   }
 
-  .header-chapter-wrap .header-layer-top,
-  .header-chapter-wrap .header-layer-bottom {
-    justify-content: center;
-    text-align: center;
-    flex-direction: column;
-  }
+  /* ── Gradient stop colors via CSS custom properties ── */
+  #fg-stop-1,
+  #fg-stop-2 { stop-color: var(--header-top-fg); }
+  #fg-stop-3,
+  #fg-stop-4 { stop-color: var(--header-bottom-fg); }
 
-  .header-menu-wrap .header-layer-top,
-  .header-menu-wrap .header-layer-bottom {
-    justify-content: center;
-  }
+  #chapter-stop-1,
+  #chapter-stop-2 { stop-color: var(--header-top-chapter); }
+  #chapter-stop-3,
+  #chapter-stop-4 { stop-color: var(--header-bottom-chapter); }
 
-  /* Top layer: visible above the boundary */
-  .header-layer-top {
-    clip-path: inset(0 0 calc(var(--header-height) - var(--header-boundary-px-local)) 0);
-  }
-
-  /* Bottom layer: visible below the boundary */
-  .header-layer-bottom {
-    clip-path: inset(var(--header-boundary-px-local) 0 0 0);
-  }
-
-  /* ── Chapter text styling ── */
-  .header-chapter-wrap {
+  /* ── Chapter text fade animation (on SVG group) ── */
+  #header-chapter-group {
     opacity: 0;
     transform: translateY(-3px);
     transition: opacity 360ms ease-out, transform 360ms ease-out;
-    pointer-events: none;
-    font-family: 'EB Garamond', Georgia, serif;
-    line-height: 1.15;
   }
 
-  .header-chapter-wrap[data-visible='true'] {
+  #header-fg-svg[data-chapter-visible='true'] #header-chapter-group {
     opacity: 1;
     transform: translateY(0);
   }
 
-  .chapter-top .header-chapter-label { color: var(--header-top-chapter); }
-  .chapter-bottom .header-chapter-label { color: var(--header-bottom-chapter); }
-
-  .header-chapter-label {
-    display: block;
-    font-style: italic;
-    font-size: 0.85rem;
-    letter-spacing: 0.01em;
-  }
-
-  .chapter-top .header-chapter-title { color: var(--header-top-fg); }
-  .chapter-bottom .header-chapter-title { color: var(--header-bottom-fg); }
-
-  .header-chapter-title {
-    display: block;
-    font-size: 0.65rem;
-    font-style: normal;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    opacity: 0.65;
-    margin-top: 0.1rem;
-  }
-
-  /* ── Menu icon ── */
-  .header-menu {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 44px;
-    height: 44px;
+  /* ── Invisible hit targets ── */
+  .header-hit-target {
+    position: absolute;
     background: transparent;
     border: 0;
     padding: 0;
     cursor: pointer;
+    pointer-events: auto;
+    -webkit-tap-highlight-color: transparent;
   }
 
-  .header-menu svg { display: block; }
-
-  .menu-top { color: var(--header-top-fg); }
-  .menu-bottom { color: var(--header-bottom-fg); }
+  .header-hit-target-menu {
+    top: 0;
+    right: var(--header-horizontal-padding);
+    width: 44px;
+    height: 100%;
+  }
 }
 
 /* ==================================================================
@@ -921,6 +840,31 @@ html[data-debug='true'] .debug-hairlines {
   right: 0;
   height: 0;
   border-top: 1px dotted rgba(122, 122, 122, 0.4);
+}
+
+/* Header debug lines — visible only in debug mode */
+.debug-header-bottom-line,
+.debug-header-boundary-line {
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 0;
+  z-index: 9999;
+  pointer-events: none;
+  display: none;
+}
+
+html[data-debug='true'] .debug-header-bottom-line,
+html[data-debug='true'] .debug-header-boundary-line {
+  display: block;
+}
+
+.debug-header-bottom-line {
+  border-top: 1px solid red;
+}
+
+.debug-header-boundary-line {
+  border-top: 1px solid lime;
 }
 
 /* ==================================================================

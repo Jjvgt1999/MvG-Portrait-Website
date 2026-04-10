@@ -7,10 +7,14 @@ import type { ChapterGeometry } from './types';
  *   - hairlines at each chapter startN (blue)
  *   - hairlines at each page startN (grey, dotted)
  *   - readout panel in top-left with live state
+ *   - header debug: red line at zone bottom, green line at boundary,
+ *     and header-specific readout values
  */
 export class DebugLayer {
   private hairlinesEl: HTMLDivElement;
   private panelEl: HTMLDivElement;
+  private headerBottomLine: HTMLDivElement;
+  private headerBoundaryLine: HTMLDivElement;
 
   constructor(
     private engine: ScrollEngine,
@@ -36,14 +40,30 @@ export class DebugLayer {
         <dt>timelineMode</dt><dd data-key="timelineMode">collapsed</dd>
         <dt>zoomScale</dt><dd data-key="zoomScale">1.00</dd>
         <dt>scrubbing</dt><dd data-key="scrubbing">false</dd>
+        <dt>topSurface</dt><dd data-key="hdr-top">paper</dd>
+        <dt>bottomSurface</dt><dd data-key="hdr-bottom">paper</dd>
+        <dt>boundaryPx</dt><dd data-key="hdr-boundary">48</dd>
+        <dt>headerH</dt><dd data-key="hdr-height">48</dd>
+        <dt>boundaryN</dt><dd data-key="hdr-boundaryN">1.00</dd>
       </dl>
     `;
     document.body.appendChild(this.panelEl);
+
+    // Header debug lines — fixed, full-width
+    this.headerBottomLine = document.createElement('div');
+    this.headerBottomLine.className = 'debug-header-bottom-line';
+    document.body.appendChild(this.headerBottomLine);
+
+    this.headerBoundaryLine = document.createElement('div');
+    this.headerBoundaryLine.className = 'debug-header-boundary-line';
+    document.body.appendChild(this.headerBoundaryLine);
   }
 
   destroy(): void {
     this.hairlinesEl.remove();
     this.panelEl.remove();
+    this.headerBottomLine.remove();
+    this.headerBoundaryLine.remove();
   }
 
   refresh(): void {
@@ -89,5 +109,17 @@ export class DebugLayer {
     set('timelineMode', s.timelineMode);
     set('zoomScale', s.zoomScale.toFixed(3));
     set('scrubbing', s.scrubbing ? 'true' : 'false');
+
+    // Header debug values
+    const hd = this.engine.headerDebugState;
+    set('hdr-top', hd.topSurface);
+    set('hdr-bottom', hd.bottomSurface);
+    set('hdr-boundary', hd.globalBoundaryPx.toFixed(1));
+    set('hdr-height', hd.headerTotalH.toFixed(0));
+    set('hdr-boundaryN', hd.boundaryN.toFixed(3));
+
+    // Position header debug lines
+    this.headerBottomLine.style.top = `${hd.headerTotalH}px`;
+    this.headerBoundaryLine.style.top = `${hd.globalBoundaryPx}px`;
   }
 }
