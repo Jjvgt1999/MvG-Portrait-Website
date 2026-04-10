@@ -55,7 +55,6 @@ export class DebugLayer {
         <dt>cutlineOffset</dt><dd data-key="cutlineOffset">0</dd>
         <dt>surfaceCutline</dt><dd data-key="surfaceCutline">0</dd>
         <dt>globalBoundary</dt><dd data-key="globalBoundary">0</dd>
-        <dt>localBoundary</dt><dd data-key="localBoundary">0</dd>
         <dt>topSurface</dt><dd data-key="topSurface">—</dd>
         <dt>bottomSurface</dt><dd data-key="bottomSurface">—</dd>
       </dl>
@@ -127,14 +126,12 @@ export class DebugLayer {
     const headerTotalH = this.engine.headerTotalHeightPx;
     const surfaceCutline = this.engine.surfaceCutlinePx;
     const globalBoundary = parseFloat(rootStyle.getPropertyValue('--header-boundary-px-global')) || 0;
-    const localBoundary = parseFloat(rootStyle.getPropertyValue('--header-boundary-px-local')) || 0;
     const cutlineOffset = surfaceCutline - headerTotalH;
 
     set('headerTotalH', headerTotalH.toFixed(1));
     set('cutlineOffset', (cutlineOffset >= 0 ? '+' : '') + cutlineOffset.toFixed(1));
     set('surfaceCutline', surfaceCutline.toFixed(1));
     set('globalBoundary', globalBoundary.toFixed(1));
-    set('localBoundary', localBoundary.toFixed(1));
     set('topSurface', s.headerTopSurface || '—');
     set('bottomSurface', s.headerSurface || '—');
 

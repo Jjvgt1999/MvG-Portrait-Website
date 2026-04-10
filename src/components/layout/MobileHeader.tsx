@@ -4,12 +4,18 @@ import { chapters } from '@/data/chapters';
 import { scrollEngine } from '@/engine/scroll-engine';
 
 /**
- * Layer 3: Transparent header chrome with dual foreground layers.
+ * Layer 3: Transparent header chrome with dual full-pass foreground.
  *
- * Each visible element (chapter text, menu icon) renders two stacked
- * color versions — one for the top surface, one for the bottom surface.
- * Both are clipped at --header-boundary-px-local so the color split
- * aligns with the occluder's surface split.
+ * Two full header passes render the complete UI (chapter text + menu icon).
+ * Each pass is clipped at --header-boundary-px-global — the SAME global
+ * boundary line that drives the occluder gradient split.
+ *
+ * header-pass-top: visible above the boundary, uses top-surface colors
+ * header-pass-bottom: visible below the boundary, uses bottom-surface colors
+ *
+ * Clipping at the full-pass level (not per element) eliminates font-metric,
+ * baseline, and icon-box differences that caused elements to briefly vanish
+ * in the previous per-element clip approach.
  *
  * NO color transitions. The boundary moves with scroll geometry.
  */
@@ -21,6 +27,44 @@ function MenuSVG() {
       <line x1="0" y1="8" x2="20" y2="8" stroke="currentColor" strokeWidth="1.5" />
       <line x1="0" y1="15" x2="20" y2="15" stroke="currentColor" strokeWidth="1.5" />
     </svg>
+  );
+}
+
+/** A complete header-row with chapter text + menu button. */
+function HeaderRowContent({
+  chapterLabel,
+  chapterTitle,
+  showChapterText,
+  onOpenToc,
+  tocOpen,
+}: {
+  chapterLabel: string;
+  chapterTitle: string;
+  showChapterText: boolean;
+  onOpenToc: () => void;
+  tocOpen: boolean;
+}) {
+  return (
+    <>
+      <div
+        className="header-chapter-wrap"
+        data-visible={showChapterText ? 'true' : 'false'}
+      >
+        {chapterLabel && (
+          <span className="header-chapter-label">{chapterLabel}</span>
+        )}
+        <span className="header-chapter-title">{chapterTitle}</span>
+      </div>
+
+      <button
+        className="header-menu"
+        onClick={onOpenToc}
+        aria-label="Inhaltsverzeichnis"
+        aria-expanded={tocOpen}
+      >
+        <MenuSVG />
+      </button>
+    </>
   );
 }
 
@@ -75,51 +119,37 @@ export function MobileHeader() {
 
   const chapter = chapters.find((c) => c.id === displayedId);
   const showChapterText = pastHero && phase === 'visible';
-
-  // Chapter text content (rendered twice — top layer + bottom layer)
   const chapterLabel = chapter?.label || '';
   const chapterTitle = chapter?.title || '';
 
   return (
     <>
-      {/* Layer 3: transparent header chrome */}
+      {/* Layer 3: transparent header chrome — two full passes */}
       <header id="site-header">
-        <div className="header-row">
-          {/* Chapter text — dual foreground layers */}
-          <div
-            className="header-chapter-wrap"
-            data-visible={showChapterText ? 'true' : 'false'}
-          >
-            <span className="header-layer header-layer-top chapter-top">
-              {chapterLabel && (
-                <span className="header-chapter-label">{chapterLabel}</span>
-              )}
-              <span className="header-chapter-title">{chapterTitle}</span>
-            </span>
-            <span className="header-layer header-layer-bottom chapter-bottom">
-              {chapterLabel && (
-                <span className="header-chapter-label">{chapterLabel}</span>
-              )}
-              <span className="header-chapter-title">{chapterTitle}</span>
-            </span>
+        {/* Pass 1: top-surface colors, visible above boundary */}
+        <div className="header-pass header-pass-top">
+          <div className="header-row">
+            <HeaderRowContent
+              chapterLabel={chapterLabel}
+              chapterTitle={chapterTitle}
+              showChapterText={showChapterText}
+              onOpenToc={openToc}
+              tocOpen={tocOpen}
+            />
           </div>
+        </div>
 
-          {/* Menu icon — dual foreground layers */}
-          <button
-            className="header-menu"
-            onClick={openToc}
-            aria-label="Inhaltsverzeichnis"
-            aria-expanded={tocOpen}
-          >
-            <span className="header-menu-wrap">
-              <span className="header-layer header-layer-top menu-top">
-                <MenuSVG />
-              </span>
-              <span className="header-layer header-layer-bottom menu-bottom">
-                <MenuSVG />
-              </span>
-            </span>
-          </button>
+        {/* Pass 2: bottom-surface colors, visible below boundary */}
+        <div className="header-pass header-pass-bottom">
+          <div className="header-row">
+            <HeaderRowContent
+              chapterLabel={chapterLabel}
+              chapterTitle={chapterTitle}
+              showChapterText={showChapterText}
+              onOpenToc={openToc}
+              tocOpen={tocOpen}
+            />
+          </div>
         </div>
       </header>
 

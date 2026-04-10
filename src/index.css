@@ -31,7 +31,6 @@
     --header-top-chapter: #1d6fe5;
     --header-bottom-chapter: #7cb4ff;
     --header-boundary-px-global: 48px;
-    --header-boundary-px-local: 48px;
 
     --header-z-occluder: 40;
     --header-z-ui: 50;
@@ -507,13 +506,11 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
 /* ==================================================================
  * Boundary-driven mobile header (< 768px only)
  *
- * Layer 2: #header-occluder — dual-surface, clipped at boundary
- * Layer 3: #site-header — transparent chrome, dual-color foreground layers
+ * Layer 2: #header-occluder — hard gradient split at boundary
+ * Layer 3: #site-header — two full passes of header UI, clipped at boundary
  *
- * Both layers clip at the same physical boundary line, mapped to each
- * layer's own coordinate space:
- *   --header-boundary-px-global  → occluder (full zone incl. safe area)
- *   --header-boundary-px-local   → foreground elements (header row only)
+ * All layers clip at the SAME global boundary line:
+ *   --header-boundary-px-global  → occluder gradient + both foreground passes
  *
  * NO transitions. All color changes are geometry-driven per frame.
  * ================================================================== */
@@ -544,7 +541,10 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
     );
   }
 
-  /* ── Layer 3: Transparent header chrome ── */
+  /* ── Layer 3: Transparent header chrome — dual full-pass system ──
+   * Two full passes each contain the complete header UI. Both are
+   * clipped at --header-boundary-px-global (same as the occluder),
+   * eliminating per-element clip artifacts. */
   #site-header {
     display: block;
     position: fixed;
@@ -552,13 +552,40 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
     left: 0;
     right: 0;
     height: var(--header-total-height);
-    padding-top: var(--safe-top);
     z-index: var(--header-z-ui);
     background: transparent;
     pointer-events: none;
     /* ZERO visible surface */
   }
 
+  /* ── Full-pass containers ── */
+  .header-pass {
+    position: absolute;
+    inset: 0;
+    padding-top: var(--safe-top);
+  }
+
+  /* Top pass: visible above the boundary */
+  .header-pass-top {
+    clip-path: inset(0 0 calc(var(--header-total-height) - var(--header-boundary-px-global)) 0);
+  }
+
+  /* Bottom pass: visible below the boundary */
+  .header-pass-bottom {
+    clip-path: inset(var(--header-boundary-px-global) 0 0 0);
+  }
+
+  /* Top-pass colors */
+  .header-pass-top .header-chapter-label { color: var(--header-top-chapter); }
+  .header-pass-top .header-chapter-title { color: var(--header-top-fg); }
+  .header-pass-top .header-menu { color: var(--header-top-fg); }
+
+  /* Bottom-pass colors */
+  .header-pass-bottom .header-chapter-label { color: var(--header-bottom-chapter); }
+  .header-pass-bottom .header-chapter-title { color: var(--header-bottom-fg); }
+  .header-pass-bottom .header-menu { color: var(--header-bottom-fg); }
+
+  /* ── Header row (shared layout for both passes) ── */
   .header-row {
     height: var(--header-height);
     display: grid;
@@ -572,64 +599,15 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
     pointer-events: auto;
   }
 
-  /* ── Dual foreground layers (chapter + menu) ── */
-  .header-chapter-wrap,
-  .header-menu-wrap {
-    position: relative;
-    height: 100%;
-    display: flex;
-    align-items: center;
-  }
-
+  /* ── Chapter text ── */
   .header-chapter-wrap {
     justify-self: center;
-    justify-content: center;
-    overflow: hidden;
-  }
-
-  /* Top layer: position:relative so it provides in-flow content for the
-     wrapper (needed for width sizing and to prevent height collapse on
-     elements like <button> that don't have explicit height).
-     Explicit height matches --header-height so clip-path math works.
-     Bottom layer: position:absolute overlaid exactly on top. */
-  .header-layer-top {
-    position: relative;
-    height: var(--header-height);
     display: flex;
+    flex-direction: column;
     align-items: center;
-  }
-
-  .header-layer-bottom {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-  }
-
-  .header-chapter-wrap .header-layer-top,
-  .header-chapter-wrap .header-layer-bottom {
     justify-content: center;
     text-align: center;
-    flex-direction: column;
-  }
-
-  .header-menu-wrap .header-layer-top,
-  .header-menu-wrap .header-layer-bottom {
-    justify-content: center;
-  }
-
-  /* Top layer: visible above the boundary */
-  .header-layer-top {
-    clip-path: inset(0 0 calc(var(--header-height) - var(--header-boundary-px-local)) 0);
-  }
-
-  /* Bottom layer: visible below the boundary */
-  .header-layer-bottom {
-    clip-path: inset(var(--header-boundary-px-local) 0 0 0);
-  }
-
-  /* ── Chapter text styling ── */
-  .header-chapter-wrap {
+    overflow: hidden;
     opacity: 0;
     transform: translateY(-3px);
     transition: opacity 360ms ease-out, transform 360ms ease-out;
@@ -643,18 +621,12 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
     transform: translateY(0);
   }
 
-  .chapter-top .header-chapter-label { color: var(--header-top-chapter); }
-  .chapter-bottom .header-chapter-label { color: var(--header-bottom-chapter); }
-
   .header-chapter-label {
     display: block;
     font-style: italic;
     font-size: 0.85rem;
     letter-spacing: 0.01em;
   }
-
-  .chapter-top .header-chapter-title { color: var(--header-top-fg); }
-  .chapter-bottom .header-chapter-title { color: var(--header-bottom-fg); }
 
   .header-chapter-title {
     display: block;
@@ -680,9 +652,6 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
   }
 
   .header-menu svg { display: block; }
-
-  .menu-top { color: var(--header-top-fg); }
-  .menu-bottom { color: var(--header-bottom-fg); }
 }
 
 /* ==================================================================

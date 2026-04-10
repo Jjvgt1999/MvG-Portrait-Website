@@ -68,11 +68,7 @@ export class ScrollEngine {
 
   // Header DOM ref caches (set on init + resize, NOT queried per frame)
   private occluderEl: HTMLElement | null = null;
-  private siteHeaderEl: HTMLElement | null = null;
-  private headerRowEl: HTMLElement | null = null;
   private cachedHeaderTotalH = 48;
-  private cachedSafeTop = 0;
-  private cachedHeaderRowH = 48;
   private cachedDPR = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
   private lastHeaderVars: Record<string, string> = {};
 
@@ -205,7 +201,6 @@ export class ScrollEngine {
     root.setProperty('--header-top-chapter', paperCh);
     root.setProperty('--header-bottom-chapter', paperCh);
     root.setProperty('--header-boundary-px-global', this.cachedHeaderTotalH + 'px');
-    root.setProperty('--header-boundary-px-local', this.cachedHeaderRowH + 'px');
     rootAttrs.setPastHero(false);
     rootAttrs.setTimelineReveal(false);
 
@@ -786,19 +781,12 @@ export class ScrollEngine {
   /** Cache DOM refs for header elements. Called on init + geometry update. */
   private cacheHeaderDOMRefs(): void {
     this.occluderEl = document.getElementById('header-occluder');
-    this.siteHeaderEl = document.getElementById('site-header');
-    this.headerRowEl = document.querySelector('.header-row');
   }
 
   /** Measure real rendered header geometry. Called on init + resize. */
   private measureHeaderGeometry(): void {
     this.cachedHeaderTotalH =
       this.occluderEl?.getBoundingClientRect().height ?? 48;
-    this.cachedSafeTop = this.siteHeaderEl
-      ? parseFloat(getComputedStyle(this.siteHeaderEl).paddingTop) || 0
-      : 0;
-    this.cachedHeaderRowH =
-      this.headerRowEl?.getBoundingClientRect().height ?? 48;
     this.cachedDPR = window.devicePixelRatio || 1;
   }
 
@@ -855,17 +843,13 @@ export class ScrollEngine {
     }
 
     // Clamp to valid ranges and snap to device-pixel grid.
-    // Device-pixel snapping ensures the gradient hard stop falls exactly on a
-    // device-pixel row, preventing sub-pixel anti-aliasing at the boundary.
     const dpr = this.cachedDPR;
     const globalBoundaryPx =
       Math.round(Math.max(0, Math.min(h, boundaryOffsetPx)) * dpr) / dpr;
-    const localBoundaryPx =
-      Math.round(
-        Math.max(0, Math.min(this.cachedHeaderRowH, globalBoundaryPx - this.cachedSafeTop)) * dpr
-      ) / dpr;
 
-    // Build var map — only write changed values
+    // Build var map — only write changed values.
+    // Only global boundary is needed: both the occluder gradient AND
+    // the foreground passes clip at the same global coordinate.
     const vars: Record<string, string> = {
       '--header-top-surface-bg': SURFACE_COLORS[topSurface],
       '--header-bottom-surface-bg': SURFACE_COLORS[bottomSurface],
@@ -874,7 +858,6 @@ export class ScrollEngine {
       '--header-top-chapter': SURFACE_CHAPTER[topSurface],
       '--header-bottom-chapter': SURFACE_CHAPTER[bottomSurface],
       '--header-boundary-px-global': globalBoundaryPx.toFixed(3) + 'px',
-      '--header-boundary-px-local': localBoundaryPx.toFixed(3) + 'px',
     };
     const root = document.documentElement.style;
     for (const [k, v] of Object.entries(vars)) {
