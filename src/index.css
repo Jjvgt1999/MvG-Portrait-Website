@@ -1,0 +1,959 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-paper: #f5f1e8;
+    --color-ink: #1a1a1a;
+    --color-dust: #7a7a7a;
+    --color-editorial: #1d6fe5;
+    --color-polaroid: #fdfcf7;
+
+    /* engine-written */
+    --scroll-y: 0;
+    --playhead: 0;
+    --zoom-scale: 1;
+    --timeline-width-px: 48;
+    --label-opacity: 0;
+    --label-scale: 1;
+    --viewport-h: 100vh;
+
+    /* header system — boundary-driven, engine-written per tick */
+    --safe-top: env(safe-area-inset-top, 0px);
+    --header-height: 48px;
+    --header-total-height: calc(var(--safe-top) + var(--header-height));
+
+    --header-top-surface-bg: #f5f1e8;
+    --header-bottom-surface-bg: #f5f1e8;
+    --header-top-fg: #1a1a1a;
+    --header-bottom-fg: #f5f1e8;
+    --header-top-chapter: #1d6fe5;
+    --header-bottom-chapter: #7cb4ff;
+    --header-boundary-px-global: 48px;
+    --header-boundary-px-local: 48px;
+
+    --header-z-occluder: 40;
+    --header-z-ui: 50;
+    --header-horizontal-padding: 14px;
+
+    color-scheme: light;
+  }
+
+  html,
+  body {
+    @apply bg-paper text-ink font-serif antialiased;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    overscroll-behavior: none;
+    /* prevent accidental horizontal scroll during zoom transform */
+    overflow-x: hidden;
+  }
+
+  img {
+    max-width: 100%;
+    display: block;
+  }
+
+  p {
+    font-feature-settings: 'kern', 'liga', 'onum';
+  }
+}
+
+@layer components {
+  .reading-measure {
+    @apply mx-auto max-w-prose px-6;
+  }
+
+  .editorial-headline {
+    @apply italic font-serif text-editorial;
+    font-size: clamp(1.75rem, 3vw, 2.75rem);
+    line-height: 1.2;
+  }
+
+  .year-label {
+    @apply font-sans text-xs tracking-wideish uppercase text-dust;
+  }
+}
+
+/* ==================================================================
+ * ZoomStage + document layer
+ * ================================================================== */
+.zoom-stage {
+  position: relative;
+  z-index: 10;
+  transform-origin: top center;
+  /* scale written by engine via inline transform when mode !== idle */
+}
+
+.zoom-content {
+  /* canonical document flow; measured by engine */
+  position: relative;
+}
+
+/* ==================================================================
+ * Hero — NOT pinned, parallax via --scroll-y
+ * ================================================================== */
+.hero {
+  position: relative;
+  background: var(--color-paper);
+  height: 100vh;
+  height: 100svh;
+  height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hero-polaroid {
+  width: clamp(220px, 26vw, 380px);
+  transform: translateY(calc(var(--scroll-y, 0) * -0.15px)) rotate(-2deg);
+}
+
+html[data-scroll-direction='up'] .hero-polaroid,
+html[data-scroll-direction='down'] .hero-polaroid {
+  will-change: transform;
+}
+
+html[data-scroll-direction='idle'] .hero-polaroid {
+  will-change: auto;
+}
+
+@media (max-width: 767px) {
+  .hero-polaroid {
+    transform: rotate(-2deg);
+  }
+}
+
+html[data-reduced-motion='true'] .hero-polaroid {
+  transform: rotate(-2deg);
+}
+
+/* ==================================================================
+ * Polaroid
+ * ================================================================== */
+.polaroid {
+  background: var(--color-polaroid);
+  padding: 1rem 1rem 3.5rem 1rem;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25), 0 4px 10px rgba(0, 0, 0, 0.12);
+  display: inline-block;
+  position: relative;
+}
+
+.polaroid img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.polaroid figcaption {
+  position: absolute;
+  bottom: 1rem;
+  left: 1rem;
+  right: 1rem;
+  text-align: center;
+  font-family: 'EB Garamond', Georgia, serif;
+  font-style: italic;
+  font-size: 0.9rem;
+  color: var(--color-dust);
+}
+
+/* ==================================================================
+ * Sticky full-bleed image
+ * ================================================================== */
+/* ==================================================================
+ * Image-break section — dark section with a centered, moderately-sized
+ * image and an optional caption. NOT full-bleed, NOT sticky.
+ * ================================================================== */
+.image-break-section {
+  /* Must be display:block (not flex) so the ::before sticky strip works
+     on mobile. Centering is handled by .image-break-inner instead. */
+  padding: clamp(4rem, 10vh, 8rem) 0;
+}
+
+.image-break-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: min(80vw, 28rem);
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+.image-break-photo {
+  width: 100%;
+  height: auto;
+  display: block;
+  object-fit: cover;
+}
+
+.image-break-caption {
+  font-family: 'EB Garamond', Georgia, serif;
+  font-style: italic;
+  font-size: clamp(0.9rem, 2.5vw, 1.15rem);
+  color: var(--color-paper);
+  opacity: 0.7;
+  text-align: center;
+  margin-top: 1.25rem;
+  letter-spacing: 0.01em;
+}
+
+/* ==================================================================
+ * TimelineNav — z-40, always above overlay and blocker
+ *
+ * Default: invisible. Fades in only when data-timeline-reveal="true"
+ * (engine flags this when the user is actively scrolling OR hovering
+ *  the right edge of the viewport). A wide invisible hover-capture strip
+ *  on the right side keeps the hover target friendly.
+ * ================================================================== */
+.timeline-nav {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 40;
+  width: calc(var(--timeline-width-px, 48) * 1px);
+  max-width: 36vw;
+  height: 72vh;
+  padding-right: 1rem;
+  pointer-events: none; /* default — enabled on reveal */
+  opacity: 0;
+  transition: opacity 0.55s ease-out;
+}
+
+html[data-timeline-reveal='true'] .timeline-nav {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Invisible hover capture strip — extends the hover target to the full right
+   edge so the user doesn't need to hit the narrow rail to reveal the timeline. */
+.timeline-nav::before {
+  content: '';
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 10vw;
+  max-width: 200px;
+  pointer-events: auto;
+  /* transparent — just a hover catcher. Only active when timeline is past hero. */
+  z-index: -1;
+}
+
+html:not([data-past-hero='true']) .timeline-nav::before {
+  pointer-events: none;
+}
+
+.timeline-nav-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.timeline-svg-wrap {
+  position: absolute;
+  right: 0.75rem;
+  top: 0;
+  width: 48px;
+  height: 100%;
+}
+
+.timeline-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  cursor: pointer;
+}
+
+.timeline-track {
+  stroke: var(--color-dust);
+  stroke-width: 1;
+  opacity: 0.35;
+}
+
+.timeline-active-segment {
+  stroke: var(--color-editorial);
+  stroke-width: 3;
+  opacity: 0.25;
+  stroke-linecap: round;
+}
+
+.timeline-chapter-tick {
+  stroke: var(--color-dust);
+  stroke-width: 1;
+  opacity: 0.6;
+  transition: opacity 0.3s ease-out;
+}
+
+html[data-timeline-mode='expanded'] .timeline-chapter-tick,
+html[data-timeline-mode='expanding'] .timeline-chapter-tick {
+  opacity: 1;
+}
+
+.timeline-page-tick {
+  stroke: var(--color-dust);
+  stroke-width: 0.75;
+  opacity: calc(var(--label-opacity, 0) * 0.7);
+}
+
+.timeline-fill {
+  stroke: var(--color-editorial);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* HTML playhead dot — positioned inside .timeline-svg-wrap.
+   The SVG's viewBox is 0..60 horizontally with the track at x=30, so the dot
+   sits at left: 50% (exact horizontal center of the wrapper). Stays perfectly
+   round because it's outside the SVG's non-uniform transform. */
+.timeline-playhead-dot {
+  position: absolute;
+  left: 50%;
+  top: var(--playhead-top, 0%);
+  width: 9px;
+  height: 9px;
+  margin-left: -4.5px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: var(--color-editorial);
+  pointer-events: none;
+  box-shadow: 0 0 0 2px var(--color-paper);
+  transition: width 0.3s ease-out, height 0.3s ease-out;
+}
+
+html[data-chapter-bg='ink'] .timeline-playhead-dot {
+  box-shadow: 0 0 0 2px var(--color-ink);
+}
+
+html[data-chapter-bg='dust'] .timeline-playhead-dot {
+  box-shadow: 0 0 0 2px var(--color-dust);
+}
+
+html[data-zoom-mode='zoomed'] .timeline-playhead-dot,
+html[data-zoom-mode='entering'] .timeline-playhead-dot,
+html[data-zoom-mode='exiting'] .timeline-playhead-dot {
+  width: 11px;
+  height: 11px;
+  margin-left: -5.5px;
+  margin-top: -5.5px;
+}
+
+/* Ink background support for timeline contrast */
+html[data-chapter-bg='ink'] .timeline-track {
+  stroke: rgba(245, 241, 232, 0.35);
+}
+html[data-chapter-bg='ink'] .timeline-chapter-tick {
+  stroke: rgba(245, 241, 232, 0.7);
+}
+
+.timeline-chapter-labels,
+.timeline-page-labels {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: calc(48px + 1rem);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  pointer-events: none;
+}
+
+.timeline-chapter-labels li,
+.timeline-page-labels li {
+  position: absolute;
+  right: 0;
+  top: var(--label-y, 0);
+  transform: translateY(-50%);
+  text-align: right;
+  cursor: pointer;
+  pointer-events: auto;
+  white-space: nowrap;
+  transform-origin: right center;
+  transition: color 0.3s ease-out, transform 0.4s ease-out;
+}
+
+.timeline-chapter-labels li {
+  font-family: 'EB Garamond', Georgia, serif;
+  font-style: italic;
+  font-size: 0.75rem;
+  color: var(--color-dust);
+}
+
+.timeline-chapter-labels li[data-active='true'] {
+  color: var(--color-editorial);
+  transform: translateY(-50%) scale(1.02);
+}
+
+html[data-timeline-mode='expanded'] .timeline-chapter-labels li,
+html[data-timeline-mode='expanding'] .timeline-chapter-labels li {
+  font-size: 1rem;
+}
+
+.timeline-chapter-labels .label-year {
+  display: block;
+  font-style: italic;
+}
+
+.timeline-chapter-labels .label-title {
+  display: block;
+  font-size: 0.7em;
+  font-style: normal;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  opacity: 0;
+  transition: opacity 0.3s ease-out;
+  margin-top: 0.15rem;
+}
+
+html[data-timeline-mode='expanded'] .timeline-chapter-labels .label-title,
+html[data-timeline-mode='expanding'] .timeline-chapter-labels .label-title {
+  opacity: var(--label-opacity, 0);
+}
+
+.timeline-page-labels {
+  right: calc(48px + 14rem);
+  opacity: var(--label-opacity, 0);
+  pointer-events: none;
+}
+
+html[data-zoom-mode='zoomed'] .timeline-page-labels {
+  pointer-events: auto;
+}
+
+.timeline-page-labels li {
+  font-family: 'EB Garamond', Georgia, serif;
+  font-size: 0.85rem;
+  font-style: italic;
+  color: var(--color-dust);
+}
+
+.timeline-page-labels li[data-active='true'] {
+  color: var(--color-editorial);
+}
+
+/* On mobile: remove the timeline and desktop indicator entirely.
+   Replaced by MobileHeader component. */
+@media (max-width: 767px) {
+  .timeline-nav { display: none !important; }
+  .current-chapter-indicator { display: none !important; }
+}
+
+html[data-zoom-mode='entering'] .timeline-nav,
+html[data-zoom-mode='zoomed'] .timeline-nav,
+html[data-zoom-mode='exiting'] .timeline-nav {
+  width: calc(var(--timeline-width-px, 48) * 1px);
+  max-width: none;
+}
+
+/* ==================================================================
+ * CurrentChapterIndicator — top-right text label, always visible
+ * (except while the hero is still on screen or during zoom mode)
+ * ================================================================== */
+.current-chapter-indicator {
+  position: fixed;
+  top: 1.75rem;
+  right: 2rem;
+  z-index: 42;
+  text-align: right;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 360ms ease-out, transform 360ms ease-out;
+  font-family: 'EB Garamond', Georgia, serif;
+  line-height: 1.2;
+  max-width: 14rem;
+}
+
+.current-chapter-indicator[data-visible='true'] {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.current-chapter-indicator .cci-label {
+  display: block;
+  font-style: italic;
+  font-size: 0.95rem;
+  color: var(--color-editorial);
+  letter-spacing: 0.01em;
+}
+
+.current-chapter-indicator .cci-title {
+  display: block;
+  font-size: 0.75rem;
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-dust);
+  margin-top: 0.15rem;
+}
+
+/* Inverted contrast on dark sections */
+html[data-chapter-bg='ink'] .current-chapter-indicator .cci-label,
+html[data-chapter-bg='dust'] .current-chapter-indicator .cci-label {
+  color: #7cb4ff;
+}
+html[data-chapter-bg='ink'] .current-chapter-indicator .cci-title,
+html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
+  color: rgba(245, 241, 232, 0.7);
+}
+
+/* ==================================================================
+ * Boundary-driven mobile header (< 768px only)
+ *
+ * Layer 2: #header-occluder — dual-surface, clipped at boundary
+ * Layer 3: #site-header — transparent chrome, dual-color foreground layers
+ *
+ * Both layers clip at the same physical boundary line, mapped to each
+ * layer's own coordinate space:
+ *   --header-boundary-px-global  → occluder (full zone incl. safe area)
+ *   --header-boundary-px-local   → foreground elements (header row only)
+ *
+ * NO transitions. All color changes are geometry-driven per frame.
+ * ================================================================== */
+
+/* Desktop: both layers hidden */
+#header-occluder,
+#site-header { display: none; }
+
+@media (max-width: 767px) {
+
+  /* ── Layer 2: Dual-surface occluder ── */
+  #header-occluder {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--header-total-height);
+    z-index: var(--header-z-occluder);
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .occluder-surface {
+    position: absolute;
+    inset: 0;
+  }
+
+  .occluder-top {
+    background: var(--header-top-surface-bg);
+    clip-path: inset(0 0 calc(var(--header-total-height) - var(--header-boundary-px-global)) 0);
+  }
+
+  .occluder-bottom {
+    background: var(--header-bottom-surface-bg);
+    clip-path: inset(var(--header-boundary-px-global) 0 0 0);
+  }
+
+  /* ── Layer 3: Transparent header chrome ── */
+  #site-header {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--header-total-height);
+    padding-top: var(--safe-top);
+    z-index: var(--header-z-ui);
+    background: transparent;
+    pointer-events: none;
+    /* ZERO visible surface */
+  }
+
+  .header-row {
+    height: var(--header-height);
+    display: grid;
+    grid-template-columns: 1fr 44px;
+    align-items: center;
+    padding: 0 var(--header-horizontal-padding);
+    position: relative;
+  }
+
+  .header-row > * {
+    pointer-events: auto;
+  }
+
+  /* ── Dual foreground layers (chapter + menu) ── */
+  .header-chapter-wrap,
+  .header-menu-wrap {
+    position: relative;
+    height: 100%;
+    display: flex;
+    align-items: center;
+  }
+
+  .header-chapter-wrap {
+    justify-self: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  /* Top layer is position:relative to establish the wrapper's size.
+     Bottom layer is position:absolute, overlaid exactly on top. */
+  .header-layer-top {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  .header-layer-bottom {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+  }
+
+  .header-chapter-wrap .header-layer-top,
+  .header-chapter-wrap .header-layer-bottom {
+    justify-content: center;
+    text-align: center;
+    flex-direction: column;
+  }
+
+  .header-menu-wrap .header-layer-top,
+  .header-menu-wrap .header-layer-bottom {
+    justify-content: center;
+  }
+
+  /* Top layer: visible above the boundary */
+  .header-layer-top {
+    clip-path: inset(0 0 calc(var(--header-height) - var(--header-boundary-px-local)) 0);
+  }
+
+  /* Bottom layer: visible below the boundary */
+  .header-layer-bottom {
+    clip-path: inset(var(--header-boundary-px-local) 0 0 0);
+  }
+
+  /* ── Chapter text styling ── */
+  .header-chapter-wrap {
+    opacity: 0;
+    transform: translateY(-3px);
+    transition: opacity 360ms ease-out, transform 360ms ease-out;
+    pointer-events: none;
+    font-family: 'EB Garamond', Georgia, serif;
+    line-height: 1.15;
+  }
+
+  .header-chapter-wrap[data-visible='true'] {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .chapter-top .header-chapter-label { color: var(--header-top-chapter); }
+  .chapter-bottom .header-chapter-label { color: var(--header-bottom-chapter); }
+
+  .header-chapter-label {
+    display: block;
+    font-style: italic;
+    font-size: 0.85rem;
+    letter-spacing: 0.01em;
+  }
+
+  .chapter-top .header-chapter-title { color: var(--header-top-fg); }
+  .chapter-bottom .header-chapter-title { color: var(--header-bottom-fg); }
+
+  .header-chapter-title {
+    display: block;
+    font-size: 0.65rem;
+    font-style: normal;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.65;
+    margin-top: 0.1rem;
+  }
+
+  /* ── Menu icon ── */
+  .header-menu {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  .header-menu svg { display: block; }
+
+  .menu-top { color: var(--header-top-fg); }
+  .menu-bottom { color: var(--header-bottom-fg); }
+}
+
+/* ==================================================================
+ * MobileTableOfContents — z-60, full-screen overlay + slide-in drawer
+ * ================================================================== */
+.mobile-toc-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0);
+  pointer-events: none;
+  transition: background 350ms ease-out;
+}
+
+.mobile-toc-overlay[data-open='true'] {
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+}
+
+.mobile-toc-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 80vw;
+  max-width: 320px;
+  background: var(--color-paper);
+  transform: translateX(100%);
+  transition: transform 380ms cubic-bezier(0.32, 0.72, 0, 1);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.15);
+}
+
+.mobile-toc-overlay[data-open='true'] .mobile-toc-drawer {
+  transform: translateX(0);
+}
+
+.mobile-toc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.mobile-toc-title {
+  font-family: 'EB Garamond', Georgia, serif;
+  font-size: 1.1rem;
+  font-style: italic;
+  color: var(--color-ink);
+}
+
+.mobile-toc-close {
+  background: none;
+  border: none;
+  padding: 6px;
+  cursor: pointer;
+  color: var(--color-dust);
+}
+
+.mobile-toc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.75rem 0;
+  flex: 1;
+}
+
+.mobile-toc-list li {
+  margin: 0;
+}
+
+.mobile-toc-list li button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.65rem 1.25rem;
+  font-family: 'EB Garamond', Georgia, serif;
+  transition: background 0.2s ease-out;
+}
+
+.mobile-toc-list li button:active {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.mobile-toc-list li .toc-label {
+  display: block;
+  font-style: italic;
+  font-size: 0.95rem;
+  color: var(--color-dust);
+  letter-spacing: 0.01em;
+}
+
+.mobile-toc-list li .toc-title {
+  display: block;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-ink);
+  margin-top: 0.1rem;
+}
+
+.mobile-toc-list li[data-active='true'] .toc-label {
+  color: var(--color-editorial);
+}
+.mobile-toc-list li[data-active='true'] .toc-title {
+  color: var(--color-editorial);
+}
+
+/* ==================================================================
+ * TransitionOverlay — z-35
+ * ================================================================== */
+.transition-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  background: var(--color-paper);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease-out;
+}
+
+html[data-zoom-mode='entering'] .transition-overlay,
+html[data-zoom-mode='exiting'] .transition-overlay {
+  opacity: 1;
+}
+
+html[data-overlay-phase='unmasking'] .transition-overlay {
+  opacity: 0;
+}
+
+html[data-reduced-motion='true'] .transition-overlay {
+  display: none;
+}
+
+/* ==================================================================
+ * BlockerLayer — z-37
+ * ================================================================== */
+.blocker-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 37;
+  background: transparent;
+  pointer-events: none;
+}
+
+html[data-zoom-mode='zoomed'] .blocker-layer {
+  pointer-events: auto;
+}
+
+/* ==================================================================
+ * Debug layer — Shift+D
+ * ================================================================== */
+.debug-panel {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 60;
+  background: rgba(26, 26, 26, 0.85);
+  color: #f5f1e8;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+  line-height: 1.5;
+  pointer-events: none;
+  display: none;
+  min-width: 14rem;
+}
+
+html[data-debug='true'] .debug-panel {
+  display: block;
+}
+
+.debug-panel dt {
+  display: inline-block;
+  opacity: 0.6;
+  width: 8rem;
+}
+
+.debug-panel dd {
+  display: inline;
+  margin: 0;
+}
+
+.debug-panel dd::after {
+  content: '\A';
+  white-space: pre;
+}
+
+.debug-hairlines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: none;
+}
+
+html[data-debug='true'] .debug-hairlines {
+  display: block;
+}
+
+.debug-chapter-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dashed rgba(29, 111, 229, 0.5);
+}
+
+.debug-chapter-line::after {
+  content: attr(data-label);
+  position: absolute;
+  left: 1rem;
+  top: -0.85rem;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 0.625rem;
+  color: var(--color-editorial);
+  background: var(--color-paper);
+  padding: 0 0.25rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.debug-page-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dotted rgba(122, 122, 122, 0.4);
+}
+
+/* ==================================================================
+ * Hard editorial cuts for chapter backgrounds
+ * ================================================================== */
+.bg-section-paper {
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+.bg-section-ink {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.bg-section-dust {
+  background: var(--color-dust);
+  color: var(--color-paper);
+}
+
+.bg-section-ink .editorial-headline,
+.bg-section-dust .editorial-headline {
+  color: #7cb4ff;
+}
+
+.bg-section-ink .year-label,
+.bg-section-dust .year-label {
+  color: rgba(245, 241, 232, 0.7);
+}
+
+/* ==================================================================
+ * Section spacing
+ * ================================================================== */
+.section-pad {
+  padding: clamp(6rem, 12vh, 12rem) 0;
+}
