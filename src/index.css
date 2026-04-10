@@ -506,13 +506,12 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
 /* ==================================================================
  * Boundary-driven mobile header (< 768px only)
  *
- * Layer 2: #header-occluder — hard-stop CSS gradient background
- * Layer 3: #site-header — single SVG foreground + HTML hit targets
- *
- * Both layers split at --header-boundary-px-global.
- * Foreground: SVG hard-stop gradients; stop-colors from CSS vars,
- *             stop offsets set imperatively by the engine per frame.
- * Occluder:   CSS linear-gradient with identical hard stop.
+ * Layer 2: #header-occluder — passive solid mask, top-surface color.
+ *          Hides content behind the header; never shows a split or
+ *          transition of its own.
+ * Layer 3: #site-header — single SVG foreground + HTML hit targets.
+ *          Only the foreground elements (text, icon) show the
+ *          boundary color change via shared hard-stop gradients.
  *
  * NO transitions. All color changes are geometry-driven per frame.
  * ================================================================== */
@@ -523,7 +522,7 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
 
 @media (max-width: 767px) {
 
-  /* ── Layer 2: Occluder — hard-stop gradient background ── */
+  /* ── Layer 2: Occluder — passive solid mask matching top surface ── */
   #header-occluder {
     display: block;
     position: fixed;
@@ -533,13 +532,7 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
     height: var(--header-total-height);
     z-index: var(--header-z-occluder);
     pointer-events: none;
-    background: linear-gradient(
-      to bottom,
-      var(--header-top-surface-bg) 0px,
-      var(--header-top-surface-bg) var(--header-boundary-px-global),
-      var(--header-bottom-surface-bg) var(--header-boundary-px-global),
-      var(--header-bottom-surface-bg) 100%
-    );
+    background: var(--header-top-surface-bg);
   }
 
   /* ── Layer 3: SVG header foreground ── */
