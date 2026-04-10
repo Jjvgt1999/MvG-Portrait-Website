@@ -923,6 +923,83 @@ html[data-debug='true'] .debug-hairlines {
   border-top: 1px dotted rgba(122, 122, 122, 0.4);
 }
 
+/* ── Debug cutline indicators (fixed, viewport-space) ── */
+.debug-fixed-line {
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 0;
+  z-index: 61;
+  pointer-events: none;
+  display: none;
+}
+
+html[data-debug='true'] .debug-fixed-line {
+  display: block;
+}
+
+/* Red: header zone bottom (cachedHeaderTotalH) */
+.debug-line-zone-bottom {
+  border-top: 1px solid rgba(255, 40, 40, 0.85);
+}
+.debug-line-zone-bottom::after {
+  content: 'zone-bottom';
+  position: absolute;
+  right: 0.5rem;
+  top: 2px;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 0.5625rem;
+  color: rgba(255, 40, 40, 0.9);
+  background: rgba(0,0,0,0.55);
+  padding: 0 0.25rem;
+  border-radius: 2px;
+  letter-spacing: 0.04em;
+}
+
+/* Cyan: actual visible surface cutline */
+.debug-line-cutline {
+  border-top: 1px solid rgba(0, 220, 255, 0.85);
+}
+.debug-line-cutline::after {
+  content: 'cutline';
+  position: absolute;
+  right: 0.5rem;
+  top: 2px;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 0.5625rem;
+  color: rgba(0, 220, 255, 0.9);
+  background: rgba(0,0,0,0.55);
+  padding: 0 0.25rem;
+  border-radius: 2px;
+  letter-spacing: 0.04em;
+}
+
+/* Green: computed split boundary */
+.debug-line-split-boundary {
+  border-top: 1px solid rgba(40, 255, 80, 0.85);
+}
+.debug-line-split-boundary::after {
+  content: 'split';
+  position: absolute;
+  right: 0.5rem;
+  top: -12px;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 0.5625rem;
+  color: rgba(40, 255, 80, 0.9);
+  background: rgba(0,0,0,0.55);
+  padding: 0 0.25rem;
+  border-radius: 2px;
+  letter-spacing: 0.04em;
+}
+
+/* Debug panel separator for cutline section */
+.debug-panel .debug-sep {
+  opacity: 0.4;
+  width: 100%;
+  font-size: 0.625rem;
+  margin-top: 0.25rem;
+}
+
 /* ==================================================================
  * Hard editorial cuts for chapter backgrounds
  * ================================================================== */

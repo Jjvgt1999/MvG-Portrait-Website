@@ -55,6 +55,7 @@ function makeInitialState(): EngineState {
     hoveringRightEdge: false,
     timelineReveal: false,
     headerSurface: 'paper',
+    headerTopSurface: 'paper',
     debug: false,
   };
 }
@@ -73,6 +74,29 @@ export class ScrollEngine {
   private cachedSafeTop = 0;
   private cachedHeaderRowH = 48;
   private lastHeaderVars: Record<string, string> = {};
+
+  /**
+   * Visual cutline calibration offset (pixels).
+   * The actual visible line where page content disappears behind the header
+   * mask may differ from cachedHeaderTotalH by a few pixels due to safe-area
+   * insets, sub-pixel rendering, or container padding. This offset corrects
+   * for that delta. Tune visually with Shift+D debug lines:
+   *   red  = header zone bottom (cachedHeaderTotalH)
+   *   cyan = surface cutline (cachedHeaderTotalH + this offset)
+   *   green = computed split boundary
+   * When cyan aligns with the actual content edge, the value is correct.
+   */
+  private visualCutlineOffsetPx = 0;
+
+  /** The real visible cutline in viewport-space (px from viewport top). */
+  get surfaceCutlinePx(): number {
+    return this.cachedHeaderTotalH + this.visualCutlineOffsetPx;
+  }
+
+  /** Expose header total height for debug layer. */
+  get headerTotalHeightPx(): number {
+    return this.cachedHeaderTotalH;
+  }
 
   // Springs
   readonly playheadSpring = new Spring(0, 180, 28);
@@ -777,22 +801,34 @@ export class ScrollEngine {
 
   /**
    * Boundary-driven header surface detection.
-   * Computes topSurface, bottomSurface, and boundary position within the
-   * header zone. Writes 8 CSS vars (only when values change).
+   *
+   * Uses the **surface cutline** as the single source of truth for where
+   * page content visually disappears behind the header mask. The cutline
+   * accounts for any delta between abstract header geometry and the real
+   * visible edge (safe-area, sub-pixel, container padding, etc.).
+   *
+   * Writes 8 CSS vars (only when values change).
    * Uses cached geometry — never queries DOM layout per frame.
    */
   private updateHeaderSurface(): void {
     const h = this.cachedHeaderTotalH;
+    const cutline = this.surfaceCutlinePx; // real visible cutline (viewport px)
     const sy = this.state.rawScrollY;
+
+    // Convert cutline to document-space: where content actually meets the header edge
+    const cutlineDocY = sy + cutline;
+
+    // Zone edges in document-space, anchored to the cutline
     const zoneTop = sy;
-    const zoneBottom = sy + h;
+    const zoneBottom = cutlineDocY;
 
     // Surface at zone edges
     const topSurface = this.surfaceAtY(zoneTop + 1);
     const bottomSurface = this.surfaceAtY(zoneBottom - 1);
 
-    // Boundary detection inside the zone
-    let boundaryOffsetPx = h; // default: no boundary, everything is topSurface
+    // Boundary detection: find where the surface changes within the zone.
+    // boundaryOffsetPx is measured from zoneTop (scroll position).
+    let boundaryOffsetPx = cutline; // default: no boundary, everything is topSurface
     if (topSurface !== bottomSurface) {
       // Walk sorted surfaceRegions. For overlapping/nested regions,
       // later entries win — don't break, keep walking.
@@ -804,7 +840,7 @@ export class ScrollEngine {
       }
     }
 
-    // Clamp to valid ranges
+    // Clamp to valid ranges within the occluder's rendered height
     const globalBoundaryPx = Math.max(0, Math.min(h, boundaryOffsetPx));
     const localBoundaryPx = Math.max(
       0,
@@ -835,6 +871,7 @@ export class ScrollEngine {
       this.state.headerSurface = bottomSurface;
       document.documentElement.dataset.headerSurface = bottomSurface;
     }
+    this.state.headerTopSurface = topSurface;
   }
 
   /**

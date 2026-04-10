@@ -65,6 +65,8 @@ export type EngineState = {
   timelineReveal: boolean;
   /** Surface color behind the header area (probed at header bottom edge). */
   headerSurface: HeaderSurface;
+  /** Surface color at the top edge of the header zone. */
+  headerTopSurface: HeaderSurface;
   debug: boolean;
 };
 
