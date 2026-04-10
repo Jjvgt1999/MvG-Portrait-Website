@@ -587,12 +587,14 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
     overflow: hidden;
   }
 
-  /* Both layers fill the full wrapper height (position:absolute, inset:0)
-     so clip-path math based on --header-height works correctly.
-     The wrappers have explicit height:100%, so they don't need content sizing. */
+  /* Top layer: position:relative so it provides in-flow content for the
+     wrapper (needed for width sizing and to prevent height collapse on
+     elements like <button> that don't have explicit height).
+     Explicit height matches --header-height so clip-path math works.
+     Bottom layer: position:absolute overlaid exactly on top. */
   .header-layer-top {
-    position: absolute;
-    inset: 0;
+    position: relative;
+    height: var(--header-height);
     display: flex;
     align-items: center;
   }
