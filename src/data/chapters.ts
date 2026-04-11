@@ -16,7 +16,6 @@ export type Paragraph =
       caption?: string;
       width: number;
       height: number;
-      rotation?: number;
     }
   | {
       kind: 'sticky-image';
@@ -126,7 +125,6 @@ export const chapters: ChapterData[] = [
             caption: 'The house in Riga, photographed by his father, 1938.',
             width: 800,
             height: 1000,
-            rotation: -1.5,
           },
           {
             kind: 'text',
@@ -186,7 +184,6 @@ export const chapters: ChapterData[] = [
             caption: 'At the Technische Universität Braunschweig, 1962.',
             width: 800,
             height: 1000,
-            rotation: 2,
           },
           {
             kind: 'text',
@@ -256,7 +253,6 @@ export const chapters: ChapterData[] = [
             caption: 'The competition model, 1965. The gates radiated from the traveler, not the other way around.',
             width: 800,
             height: 1000,
-            rotation: -2.5,
           },
           {
             kind: 'text',
@@ -307,7 +303,6 @@ export const chapters: ChapterData[] = [
             caption: 'Stuttgart Trade Fair under construction, 1991.',
             width: 800,
             height: 1000,
-            rotation: 1,
           },
           {
             kind: 'text',
@@ -378,7 +373,6 @@ export const chapters: ChapterData[] = [
             caption: 'At the new Beijing office, 2003.',
             width: 800,
             height: 1000,
-            rotation: -1,
           },
         ],
       },

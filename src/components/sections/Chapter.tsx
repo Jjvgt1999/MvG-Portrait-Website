@@ -68,7 +68,6 @@ function ParagraphBlock({ paragraph }: { paragraph: Paragraph }) {
           src={paragraph.src}
           alt={paragraph.alt}
           caption={paragraph.caption}
-          rotation={paragraph.rotation}
           width={paragraph.width}
           height={paragraph.height}
           className="max-w-sm w-full"

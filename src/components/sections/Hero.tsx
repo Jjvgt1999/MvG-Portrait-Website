@@ -19,7 +19,6 @@ export function Hero() {
           src="https://placehold.co/800x1000/d4cfc0/3a3a3a?text=MvG"
           alt="Portrait of Meinhard von Gerkan"
           caption="Meinhard von Gerkan, circa 1970"
-          rotation={-2}
           width={800}
           height={1000}
           className="hero-polaroid"

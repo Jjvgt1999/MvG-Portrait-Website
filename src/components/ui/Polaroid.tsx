@@ -4,7 +4,6 @@ type PolaroidProps = {
   src: string;
   alt: string;
   caption?: string;
-  rotation?: number;
   width: number;
   height: number;
   className?: string;
@@ -13,7 +12,7 @@ type PolaroidProps = {
 
 export const Polaroid = React.forwardRef<HTMLElement, PolaroidProps>(
   function Polaroid(
-    { src, alt, caption, rotation = 0, width, height, className, eager = false },
+    { src, alt, caption, width, height, className, eager = false },
     ref
   ) {
     const imgRef = useRef<HTMLImageElement>(null);
@@ -26,7 +25,6 @@ export const Polaroid = React.forwardRef<HTMLElement, PolaroidProps>(
       <figure
         ref={ref}
         className={`polaroid ${className ?? ''}`}
-        style={{ transform: `rotate(${rotation}deg)` }}
       >
         <img
           ref={imgRef}
