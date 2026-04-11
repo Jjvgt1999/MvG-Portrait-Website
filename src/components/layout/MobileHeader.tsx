@@ -8,8 +8,8 @@ import { scrollEngine } from '@/engine/scroll-engine';
  *
  * Each visible element (chapter text, menu icon) renders two stacked
  * color versions — one for the top surface, one for the bottom surface.
- * Both are clipped at --header-boundary-px-local so the color split
- * aligns with the occluder's surface split.
+ * Both are clipped at --header-fg-{top,bottom}-inset-px so the color
+ * split aligns with the occluder's surface split.
  *
  * NO color transitions. The boundary moves with scroll geometry.
  */

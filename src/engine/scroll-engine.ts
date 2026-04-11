@@ -20,6 +20,35 @@ import { playheadN, activeReferenceN, clamp01 } from './normalize';
 
 const TIMELINE_WIDTH_COLLAPSED = 48;
 const TIMELINE_WIDTH_EXPANDED_VW = 0.22;
+
+/**
+ * Canonical boundary packet produced once per tick by `updateHeaderSurface()`.
+ * Every consumer (occluder, foreground layers, debug overlay) reads from this
+ * snapshot — not from its own derivation — so all boundary-driven paints
+ * stay bit-identical.
+ */
+export type HeaderBoundaryState = {
+  topSurface: HeaderSurface;
+  bottomSurface: HeaderSurface;
+  /** Cached total header height (includes safe area) in px. */
+  headerTotalHeightPx: number;
+  /** Cached header-row height (excludes safe area) in px. */
+  headerRowHeightPx: number;
+  /** Cached safe-area inset top in px. */
+  safeTopPx: number;
+  /** Pre-snap global boundary (full-header-space), for debug only. */
+  rawGlobalPx: number;
+  /** Pre-snap local boundary (header-row-space), for debug only. */
+  rawLocalPx: number;
+  /** Snapped top-inset used by the occluder (bottom edge of top surface). */
+  occluderTopInsetPx: number;
+  /** Snapped bottom-inset used by the occluder (top edge of bottom surface). */
+  occluderBottomInsetPx: number;
+  /** Snapped top-inset used by chapter text + menu icon top layer. */
+  fgTopInsetPx: number;
+  /** Snapped bottom-inset used by chapter text + menu icon bottom layer. */
+  fgBottomInsetPx: number;
+};
 const SCROLL_IDLE_MS = 200;
 
 type InitParams = {
@@ -73,6 +102,19 @@ export class ScrollEngine {
   private cachedSafeTop = 0;
   private cachedHeaderRowH = 48;
   private lastHeaderVars: Record<string, string> = {};
+  private headerBoundaryState: HeaderBoundaryState = {
+    topSurface: 'paper',
+    bottomSurface: 'paper',
+    headerTotalHeightPx: 48,
+    headerRowHeightPx: 48,
+    safeTopPx: 0,
+    rawGlobalPx: 48,
+    rawLocalPx: 48,
+    occluderTopInsetPx: 0,
+    occluderBottomInsetPx: 48,
+    fgTopInsetPx: 0,
+    fgBottomInsetPx: 48,
+  };
 
   // Springs
   readonly playheadSpring = new Spring(0, 180, 28);
@@ -179,8 +221,19 @@ export class ScrollEngine {
     root.setProperty('--header-bottom-fg', paperFg);
     root.setProperty('--header-top-chapter', paperCh);
     root.setProperty('--header-bottom-chapter', paperCh);
-    root.setProperty('--header-boundary-px-global', this.cachedHeaderTotalH + 'px');
-    root.setProperty('--header-boundary-px-local', this.cachedHeaderRowH + 'px');
+    // Initial insets: no boundary, top surface covers everything.
+    // Both sides of each clip are written from the same measured source so
+    // the first paint never runs CSS calc() on a boundary-driven value.
+    root.setProperty('--header-occluder-top-inset-px', '0px');
+    root.setProperty(
+      '--header-occluder-bottom-inset-px',
+      this.cachedHeaderTotalH + 'px'
+    );
+    root.setProperty('--header-fg-top-inset-px', '0px');
+    root.setProperty(
+      '--header-fg-bottom-inset-px',
+      this.cachedHeaderRowH + 'px'
+    );
     rootAttrs.setPastHero(false);
     rootAttrs.setTimelineReveal(false);
 
@@ -777,12 +830,30 @@ export class ScrollEngine {
 
   /**
    * Boundary-driven header surface detection.
-   * Computes topSurface, bottomSurface, and boundary position within the
-   * header zone. Writes 8 CSS vars (only when values change).
+   *
+   * Computes topSurface, bottomSurface, and the boundary position within the
+   * header zone. Emits a canonical boundary packet as CSS variables — four
+   * COMPLEMENTARY inset values (top + bottom == total height) at the same
+   * snapped resolution, plus the six color vars. Distributed once per tick.
+   *
+   * Coordinate spaces:
+   *   - full-header-space (viewport-top → header bottom, includes safe area):
+   *       --header-occluder-{top,bottom}-inset-px
+   *       consumed by the Layer-2 occluder
+   *   - header-row-space (below safe area, header row only):
+   *       --header-fg-{top,bottom}-inset-px
+   *       consumed by chapter text + menu icon
+   *
+   * The engine SNAPS once to 1 decimal and writes both sides of each clip.
+   * The CSS never runs calc() on any boundary-driven value — this is what
+   * prevents sub-pixel drift between complementary insets on iOS Safari.
+   *
    * Uses cached geometry — never queries DOM layout per frame.
    */
   private updateHeaderSurface(): void {
     const h = this.cachedHeaderTotalH;
+    const rowH = this.cachedHeaderRowH;
+    const safeTop = this.cachedSafeTop;
     const sy = this.state.rawScrollY;
     const zoneTop = sy;
     const zoneBottom = sy + h;
@@ -804,14 +875,21 @@ export class ScrollEngine {
       }
     }
 
-    // Clamp to valid ranges
-    const globalBoundaryPx = Math.max(0, Math.min(h, boundaryOffsetPx));
-    const localBoundaryPx = Math.max(
-      0,
-      Math.min(this.cachedHeaderRowH, globalBoundaryPx - this.cachedSafeTop)
-    );
+    // --- Canonical boundary packet: snap ONCE, distribute identically ---
 
-    // Build var map — only write changed values
+    // full-header-space (includes safe area) → occluder
+    const rawGlobalPx = Math.max(0, Math.min(h, boundaryOffsetPx));
+    const occluderBottomInsetPx = parseFloat(rawGlobalPx.toFixed(1));
+    const occluderTopInsetPx = parseFloat((h - rawGlobalPx).toFixed(1));
+
+    // header-row-space (excludes safe area) → chapter text + menu icon
+    const rawLocalPx = Math.max(0, Math.min(rowH, rawGlobalPx - safeTop));
+    const fgBottomInsetPx = parseFloat(rawLocalPx.toFixed(1));
+    const fgTopInsetPx = parseFloat((rowH - rawLocalPx).toFixed(1));
+
+    // Build var map — only write changed values.
+    // Both sides of every clip are snapped to the same precision so
+    // top-inset + bottom-inset == total height, bit-exactly.
     const vars: Record<string, string> = {
       '--header-top-surface-bg': SURFACE_COLORS[topSurface],
       '--header-bottom-surface-bg': SURFACE_COLORS[bottomSurface],
@@ -819,8 +897,10 @@ export class ScrollEngine {
       '--header-bottom-fg': SURFACE_FG[bottomSurface],
       '--header-top-chapter': SURFACE_CHAPTER[topSurface],
       '--header-bottom-chapter': SURFACE_CHAPTER[bottomSurface],
-      '--header-boundary-px-global': globalBoundaryPx.toFixed(1) + 'px',
-      '--header-boundary-px-local': localBoundaryPx.toFixed(1) + 'px',
+      '--header-occluder-top-inset-px': occluderTopInsetPx + 'px',
+      '--header-occluder-bottom-inset-px': occluderBottomInsetPx + 'px',
+      '--header-fg-top-inset-px': fgTopInsetPx + 'px',
+      '--header-fg-bottom-inset-px': fgBottomInsetPx + 'px',
     };
     const root = document.documentElement.style;
     for (const [k, v] of Object.entries(vars)) {
@@ -830,11 +910,36 @@ export class ScrollEngine {
       }
     }
 
+    // Cache the packet so the debug overlay can read the same snapshot
+    // every consumer is consuming. Single source of truth per tick.
+    this.headerBoundaryState = {
+      topSurface,
+      bottomSurface,
+      headerTotalHeightPx: h,
+      headerRowHeightPx: rowH,
+      safeTopPx: safeTop,
+      rawGlobalPx,
+      rawLocalPx,
+      occluderTopInsetPx,
+      occluderBottomInsetPx,
+      fgTopInsetPx,
+      fgBottomInsetPx,
+    };
+
     // Discrete state for React subscribers
     if (bottomSurface !== this.state.headerSurface) {
       this.state.headerSurface = bottomSurface;
       document.documentElement.dataset.headerSurface = bottomSurface;
     }
+  }
+
+  /**
+   * Read-only snapshot of the canonical boundary packet produced by the last
+   * updateHeaderSurface() tick. Used by the debug overlay to verify that
+   * every consumer is reading bit-identical values.
+   */
+  getHeaderBoundaryState(): HeaderBoundaryState {
+    return this.headerBoundaryState;
   }
 
   /**

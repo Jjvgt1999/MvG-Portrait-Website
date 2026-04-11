@@ -30,8 +30,14 @@
     --header-bottom-fg: #f5f1e8;
     --header-top-chapter: #1d6fe5;
     --header-bottom-chapter: #7cb4ff;
-    --header-boundary-px-global: 48px;
-    --header-boundary-px-local: 48px;
+    /* Canonical boundary packet — four complementary insets written
+       per tick by scroll-engine.ts::updateHeaderSurface(). top + bottom
+       always sum to the layer's total height at the engine's snapped
+       resolution, so CSS never runs calc() on a boundary-driven value. */
+    --header-occluder-top-inset-px: 0px;
+    --header-occluder-bottom-inset-px: var(--header-total-height);
+    --header-fg-top-inset-px: 0px;
+    --header-fg-bottom-inset-px: var(--header-height);
 
     --header-z-occluder: 40;
     --header-z-ui: 50;
@@ -510,10 +516,19 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
  * Layer 2: #header-occluder — dual-surface, clipped at boundary
  * Layer 3: #site-header — transparent chrome, dual-color foreground layers
  *
- * Both layers clip at the same physical boundary line, mapped to each
- * layer's own coordinate space:
- *   --header-boundary-px-global  → occluder (full zone incl. safe area)
- *   --header-boundary-px-local   → foreground elements (header row only)
+ * Both layers clip at the same physical boundary line. The engine writes
+ * FOUR complementary inset vars per tick — two per coordinate space —
+ * so top-inset + bottom-inset == the layer's total height bit-exactly.
+ * The CSS below never runs calc() on any boundary-driven value, which is
+ * what prevents hairline seams on Safari with fractional DPR.
+ *
+ *   full-header-space (incl. safe area) → occluder
+ *     --header-occluder-top-inset-px      (bottom edge of top surface)
+ *     --header-occluder-bottom-inset-px   (top edge of bottom surface)
+ *
+ *   header-row-space (excludes safe area) → chapter text + menu icon
+ *     --header-fg-top-inset-px            (bottom edge of top layer)
+ *     --header-fg-bottom-inset-px         (top edge of bottom layer)
  *
  * NO transitions. All color changes are geometry-driven per frame.
  * ================================================================== */
@@ -544,12 +559,12 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
 
   .occluder-top {
     background: var(--header-top-surface-bg);
-    clip-path: inset(0 0 calc(var(--header-total-height) - var(--header-boundary-px-global)) 0);
+    clip-path: inset(0 0 var(--header-occluder-top-inset-px) 0);
   }
 
   .occluder-bottom {
     background: var(--header-bottom-surface-bg);
-    clip-path: inset(var(--header-boundary-px-global) 0 0 0);
+    clip-path: inset(var(--header-occluder-bottom-inset-px) 0 0 0);
   }
 
   /* ── Layer 3: Transparent header chrome ── */
@@ -624,12 +639,12 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
 
   /* Top layer: visible above the boundary */
   .header-layer-top {
-    clip-path: inset(0 0 calc(var(--header-height) - var(--header-boundary-px-local)) 0);
+    clip-path: inset(0 0 var(--header-fg-top-inset-px) 0);
   }
 
   /* Bottom layer: visible below the boundary */
   .header-layer-bottom {
-    clip-path: inset(var(--header-boundary-px-local) 0 0 0);
+    clip-path: inset(var(--header-fg-bottom-inset-px) 0 0 0);
   }
 
   /* ── Chapter text styling ── */
@@ -921,6 +936,29 @@ html[data-debug='true'] .debug-hairlines {
   right: 0;
   height: 0;
   border-top: 1px dotted rgba(122, 122, 122, 0.4);
+}
+
+/* Header boundary guide lines — four 1px stripes split into quadrants.
+   Each quadrant reads its `top` from a DIFFERENT source so any drift
+   between consumers shows as a visible step. Hidden when no boundary
+   is active (top surface == bottom surface). */
+.debug-boundary-guides {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 70;
+  display: none;
+}
+
+html[data-debug='true'] .debug-boundary-guides[data-active='true'] {
+  display: block;
+}
+
+.debug-boundary-guide {
+  position: fixed;
+  height: 1px;
+  pointer-events: none;
+  /* top + left + width are set imperatively by DebugLayer per frame */
 }
 
 /* ==================================================================
