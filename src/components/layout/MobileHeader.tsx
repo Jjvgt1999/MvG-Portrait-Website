@@ -2,28 +2,73 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEngine } from '@/hooks/useEngine';
 import { chapters } from '@/data/chapters';
 import { scrollEngine } from '@/engine/scroll-engine';
+import { HEADER_GEOMETRY } from '@/engine/header-theme';
 
 /**
- * Layer 3: Transparent header chrome with dual foreground layers.
+ * Layer B: Stencil foreground chrome (transparent plate, single-instance
+ * foreground elements).
  *
- * Each visible element (chapter text, menu icon) renders two stacked
- * color versions — one for the top surface, one for the bottom surface.
- * Both are clipped at --header-boundary-px-local so the color split
- * aligns with the occluder's surface split.
+ * Chapter label + title are ONE HTML block painted by a shared
+ * `background-clip: text` gradient on `.header-chapter-wrap`. The menu icon
+ * is ONE SVG with a shared `<linearGradient>` whose middle stop offsets are
+ * written directly by the engine each frame (see scroll-engine.ts
+ * updateHeaderSurface). Both stencils share one coordinate system via
+ * `--header-boundary-local-px`, so their splits land on the same device row.
  *
- * NO color transitions. The boundary moves with scroll geometry.
+ * There are NO duplicated text or icon layers. The stencil architecture
+ * replaces the previous clip-path split.
  */
 
+/**
+ * Menu icon — single instance, shared linearGradient paint.
+ *
+ * Stop ids `header-menu-stop-top-end` and `header-menu-stop-bot-start` are
+ * stable globals looked up by the engine. Because `MobileHeader` is mounted
+ * exactly once (see singleton invariant in the component), these ids are safe
+ * as literals. If that invariant ever changes, switch to useId()-derived ids.
+ */
 function MenuSVG() {
+  const w = HEADER_GEOMETRY.menuIconViewBoxW;
+  const h = HEADER_GEOMETRY.menuIconViewBoxH;
   return (
-    <svg width="20" height="16" viewBox="0 0 20 16" fill="none" aria-hidden="true">
-      <line x1="0" y1="1" x2="20" y2="1" stroke="currentColor" strokeWidth="1.5" />
-      <line x1="0" y1="8" x2="20" y2="8" stroke="currentColor" strokeWidth="1.5" />
-      <line x1="0" y1="15" x2="20" y2="15" stroke="currentColor" strokeWidth="1.5" />
+    <svg
+      width={w}
+      height={h}
+      viewBox={`0 0 ${w} ${h}`}
+      fill="none"
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient
+          id="header-menu-stencil"
+          gradientUnits="userSpaceOnUse"
+          x1="0"
+          y1="0"
+          x2="0"
+          y2={h}
+        >
+          <stop offset="0" stopColor="var(--header-top-fg)" />
+          <stop
+            id="header-menu-stop-top-end"
+            offset="1"
+            stopColor="var(--header-top-fg)"
+          />
+          <stop
+            id="header-menu-stop-bot-start"
+            offset="1"
+            stopColor="var(--header-bottom-fg)"
+          />
+          <stop offset="1" stopColor="var(--header-bottom-fg)" />
+        </linearGradient>
+      </defs>
+      <line x1="0" y1="1" x2={w} y2="1" stroke="url(#header-menu-stencil)" strokeWidth="1.5" />
+      <line x1="0" y1="8" x2={w} y2="8" stroke="url(#header-menu-stencil)" strokeWidth="1.5" />
+      <line x1="0" y1="15" x2={w} y2="15" stroke="url(#header-menu-stencil)" strokeWidth="1.5" />
     </svg>
   );
 }
 
+/** Mounted exactly once in App.tsx. The menu gradient id is a global singleton. */
 export function MobileHeader() {
   const activeId = useEngine((s) => s.activeChapterId);
   const pastHero = useEngine((s) => s.pastHero);
@@ -49,6 +94,21 @@ export function MobileHeader() {
       }
     };
   }, [activeId, displayedId]);
+
+  // --- Dev-only singleton invariant: the menu gradient id is global.
+  //     If a second MobileHeader ever mounts, the ids collide. ---
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      const count = document.querySelectorAll('#header-menu-stencil').length;
+      if (count > 1) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `[MobileHeader] multiple instances detected (${count}) — ` +
+            'menu gradient id collision. The component must be mounted exactly once.'
+        );
+      }
+    }
+  }, []);
 
   // --- TOC drawer state ---
   const [tocOpen, setTocOpen] = useState(false);
@@ -76,49 +136,34 @@ export function MobileHeader() {
   const chapter = chapters.find((c) => c.id === displayedId);
   const showChapterText = pastHero && phase === 'visible';
 
-  // Chapter text content (rendered twice — top layer + bottom layer)
+  // Chapter text content — rendered exactly once
   const chapterLabel = chapter?.label || '';
   const chapterTitle = chapter?.title || '';
 
   return (
     <>
-      {/* Layer 3: transparent header chrome */}
+      {/* Layer B: transparent stencil chrome — single-instance foreground */}
       <header id="site-header">
         <div className="header-row">
-          {/* Chapter text — dual foreground layers */}
+          {/* Chapter text — single instance, painted by shared stencil gradient */}
           <div
             className="header-chapter-wrap"
             data-visible={showChapterText ? 'true' : 'false'}
           >
-            <span className="header-layer header-layer-top chapter-top">
-              {chapterLabel && (
-                <span className="header-chapter-label">{chapterLabel}</span>
-              )}
-              <span className="header-chapter-title">{chapterTitle}</span>
-            </span>
-            <span className="header-layer header-layer-bottom chapter-bottom">
-              {chapterLabel && (
-                <span className="header-chapter-label">{chapterLabel}</span>
-              )}
-              <span className="header-chapter-title">{chapterTitle}</span>
-            </span>
+            {chapterLabel && (
+              <span className="header-chapter-label">{chapterLabel}</span>
+            )}
+            <span className="header-chapter-title">{chapterTitle}</span>
           </div>
 
-          {/* Menu icon — dual foreground layers */}
+          {/* Menu icon — single instance, painted by shared SVG linearGradient */}
           <button
             className="header-menu"
             onClick={openToc}
             aria-label="Inhaltsverzeichnis"
             aria-expanded={tocOpen}
           >
-            <span className="header-menu-wrap">
-              <span className="header-layer header-layer-top menu-top">
-                <MenuSVG />
-              </span>
-              <span className="header-layer header-layer-bottom menu-bottom">
-                <MenuSVG />
-              </span>
-            </span>
+            <MenuSVG />
           </button>
         </div>
       </header>

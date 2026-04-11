@@ -6,11 +6,15 @@ import type { ChapterGeometry } from './types';
  * Renders:
  *   - hairlines at each chapter startN (blue)
  *   - hairlines at each page startN (grey, dotted)
- *   - readout panel in top-left with live state
+ *   - readout panel in top-left with live state (incl. header stencil)
+ *   - three fixed header-stencil verification hairlines that must line up
+ *     with the occluder seam, chapter text paint split, and menu icon
+ *     paint split at every scroll position
  */
 export class DebugLayer {
   private hairlinesEl: HTMLDivElement;
   private panelEl: HTMLDivElement;
+  private headerHairlinesEl: HTMLDivElement;
 
   constructor(
     private engine: ScrollEngine,
@@ -36,14 +40,34 @@ export class DebugLayer {
         <dt>timelineMode</dt><dd data-key="timelineMode">collapsed</dd>
         <dt>zoomScale</dt><dd data-key="zoomScale">1.00</dd>
         <dt>scrubbing</dt><dd data-key="scrubbing">false</dd>
+        <dt>globalBoundaryPx</dt><dd data-key="globalBoundaryPx">0</dd>
+        <dt>localBoundaryPx</dt><dd data-key="localBoundaryPx">0</dd>
+        <dt>topSurface</dt><dd data-key="topSurface">paper</dd>
+        <dt>bottomSurface</dt><dd data-key="bottomSurface">paper</dd>
+        <dt>iconRatio</dt><dd data-key="iconRatio">0.0000</dd>
+        <dt>headerRowH</dt><dd data-key="headerRowH">48</dd>
       </dl>
     `;
     document.body.appendChild(this.panelEl);
+
+    // Header stencil verification hairlines — three 1px horizontal lines that
+    // must align pixel-perfectly with the real rendered splits when Shift+D
+    // is active. Positioned entirely from HEADER_GEOMETRY-derived CSS vars.
+    this.headerHairlinesEl = document.createElement('div');
+    this.headerHairlinesEl.className = 'debug-header-hairlines';
+    this.headerHairlinesEl.setAttribute('aria-hidden', 'true');
+    this.headerHairlinesEl.innerHTML = `
+      <div class="debug-occluder-split"></div>
+      <div class="debug-chapter-split"></div>
+      <div class="debug-icon-split"></div>
+    `;
+    document.body.appendChild(this.headerHairlinesEl);
   }
 
   destroy(): void {
     this.hairlinesEl.remove();
     this.panelEl.remove();
+    this.headerHairlinesEl.remove();
   }
 
   refresh(): void {
@@ -89,5 +113,13 @@ export class DebugLayer {
     set('timelineMode', s.timelineMode);
     set('zoomScale', s.zoomScale.toFixed(3));
     set('scrubbing', s.scrubbing ? 'true' : 'false');
+
+    const snap = this.engine.headerDebugSnapshot;
+    set('globalBoundaryPx', snap.globalBoundaryPx.toString());
+    set('localBoundaryPx', snap.localBoundaryPx.toString());
+    set('topSurface', snap.topSurface);
+    set('bottomSurface', snap.bottomSurface);
+    set('iconRatio', snap.iconRatio.toFixed(4));
+    set('headerRowH', snap.headerRowH.toFixed(1));
   }
 }

@@ -1,7 +1,13 @@
 /**
- * Centralized header surface color maps.
- * The engine looks up top/bottom surfaces and writes these as CSS vars.
- * No theme objects, no if-blocks — just flat color maps per surface.
+ * Centralized header surface color maps + geometry contract.
+ *
+ * - SURFACE_COLORS / SURFACE_FG: the engine looks up top/bottom surfaces and
+ *   writes these as CSS vars each frame. No theme objects, no if-blocks — just
+ *   flat color maps per surface.
+ * - HEADER_GEOMETRY: single source of truth for header layout metrics. Engine
+ *   math, React SVG markup, production CSS, and debug CSS all consume this —
+ *   either directly (TS import) or indirectly (via CSS vars the engine writes
+ *   from this object at init time). No magic numbers anywhere.
  */
 
 export type HeaderSurface = 'paper' | 'ink' | 'dust';
@@ -14,16 +20,35 @@ export const SURFACE_COLORS: Record<HeaderSurface, string> = {
   dust: '#7a7a7a',
 };
 
-/** Icon / menu foreground per surface. */
+/**
+ * Stencil foreground paint per surface. Both chapter text and menu icon
+ * stencils draw from this pair — one shared color pair, one shared boundary.
+ */
 export const SURFACE_FG: Record<HeaderSurface, string> = {
   paper: '#1a1a1a',
   ink: '#f5f1e8',
   dust: '#f5f1e8',
 };
 
-/** Chapter text color per surface. */
-export const SURFACE_CHAPTER: Record<HeaderSurface, string> = {
-  paper: '#1d6fe5',
-  ink: '#7cb4ff',
-  dust: '#7cb4ff',
-};
+/**
+ * Header layout geometry. Single source of truth.
+ *
+ * Engine math imports these directly. At init the engine propagates each
+ * value into a matching CSS custom property so production CSS and debug CSS
+ * consume the same numbers.
+ *
+ * Must stay in sync with `--header-height` / `--header-horizontal-padding`
+ * in index.css :root. The engine asserts this on init with a tolerance.
+ */
+export const HEADER_GEOMETRY = {
+  headerRowHeightPx: 48,             // → --header-height
+  headerHorizontalPaddingPx: 14,     // → --header-horizontal-padding
+  menuButtonSizePx: 44,              // → --menu-button-size-px
+  menuIconTopPx: 16,                 // → --menu-icon-top-px
+  menuIconHeightPx: 16,              // → --menu-icon-height-px
+  menuIconViewBoxW: 20,              // → --menu-icon-viewbox-w-px
+  menuIconViewBoxH: 16,              // → --menu-icon-viewbox-h-px
+} as const;
+
+/** Tolerance (px) for the header-row-height contract drift check. */
+export const HEADER_GEOMETRY_TOLERANCE_PX = 1;

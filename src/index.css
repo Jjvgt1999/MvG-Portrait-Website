@@ -19,23 +19,35 @@
     --label-scale: 1;
     --viewport-h: 100vh;
 
-    /* header system — boundary-driven, engine-written per tick */
+    /* header system — stencil architecture, boundary-driven, engine-written per tick */
     --safe-top: env(safe-area-inset-top, 0px);
     --header-height: 48px;
     --header-total-height: calc(var(--safe-top) + var(--header-height));
 
+    /* Initial values — engine overrides these on first tick. Defaults are
+       uniform (top == bottom) so the first paint before the engine runs
+       shows a single flat surface with no visible split or seam. */
     --header-top-surface-bg: #f5f1e8;
     --header-bottom-surface-bg: #f5f1e8;
     --header-top-fg: #1a1a1a;
-    --header-bottom-fg: #f5f1e8;
-    --header-top-chapter: #1d6fe5;
-    --header-bottom-chapter: #7cb4ff;
-    --header-boundary-px-global: 48px;
-    --header-boundary-px-local: 48px;
+    --header-bottom-fg: #1a1a1a;
+    --header-boundary-global-px: 0px;
+    --header-boundary-local-px: 0px;
 
     --header-z-occluder: 40;
     --header-z-ui: 50;
     --header-horizontal-padding: 14px;
+
+    /* Geometry contract — mirrored from HEADER_GEOMETRY on init (engine writes
+       final values). Literal defaults must match so first paint is correct. */
+    --menu-button-size-px: 44px;
+    --menu-icon-top-px: 16px;
+    --menu-icon-height-px: 16px;
+    --menu-icon-viewbox-w-px: 20px;
+    --menu-icon-viewbox-h-px: 16px;
+
+    /* Debug-only: engine writes this each frame when debug is enabled. */
+    --debug-icon-split-y-px: 0px;
 
     color-scheme: light;
   }
@@ -505,17 +517,22 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
 }
 
 /* ==================================================================
- * Boundary-driven mobile header (< 768px only)
+ * Stencil-based mobile header (< 768px only)
  *
- * Layer 2: #header-occluder — dual-surface, clipped at boundary
- * Layer 3: #site-header — transparent chrome, dual-color foreground layers
+ * Layer A (#header-occluder): passive surface continuation. Two solid
+ *   absolute children butted at an integer px boundary. Paints whatever
+ *   surfaces are behind the header zone — never reads as its own bar.
  *
- * Both layers clip at the same physical boundary line, mapped to each
- * layer's own coordinate space:
- *   --header-boundary-px-global  → occluder (full zone incl. safe area)
- *   --header-boundary-px-local   → foreground elements (header row only)
+ * Layer B (#site-header): single-instance stencil foreground. Chapter
+ *   text is HTML with background-clip: text + a linear-gradient whose
+ *   hard stop is at --header-boundary-local-px. Menu icon is a single
+ *   SVG with a shared <linearGradient> whose stop offsets are written
+ *   directly by the engine.
  *
- * NO transitions. All color changes are geometry-driven per frame.
+ * One shared boundary authority:
+ *   --header-boundary-global-px  → occluder children sizing
+ *   --header-boundary-local-px   → chapter text gradient stop
+ *   (engine writes integer px values, rounded at source)
  * ================================================================== */
 
 /* Desktop: both layers hidden */
@@ -524,7 +541,7 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
 
 @media (max-width: 767px) {
 
-  /* ── Layer 2: Dual-surface occluder ── */
+  /* ── Layer A: Passive occluder ─────────────────────────────────── */
   #header-occluder {
     display: block;
     position: fixed;
@@ -537,22 +554,29 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
     overflow: hidden;
   }
 
-  .occluder-surface {
-    position: absolute;
-    inset: 0;
-  }
-
+  /* Two solid rects butted at the same shared boundary var. The engine
+     rounds globalBoundaryPx to an integer at source, so both rules
+     resolve to identical whole-pixel values — no gap, no overlap, no
+     sub-pixel seam on iPhone notch heights. */
   .occluder-top {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: var(--header-boundary-global-px);
     background: var(--header-top-surface-bg);
-    clip-path: inset(0 0 calc(var(--header-total-height) - var(--header-boundary-px-global)) 0);
   }
 
   .occluder-bottom {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: var(--header-boundary-global-px);
+    bottom: 0;
     background: var(--header-bottom-surface-bg);
-    clip-path: inset(var(--header-boundary-px-global) 0 0 0);
   }
 
-  /* ── Layer 3: Transparent header chrome ── */
+  /* ── Layer B: Transparent stencil chrome ───────────────────────── */
   #site-header {
     display: block;
     position: fixed;
@@ -570,7 +594,7 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
   .header-row {
     height: var(--header-height);
     display: grid;
-    grid-template-columns: 1fr 44px;
+    grid-template-columns: 1fr var(--menu-button-size-px);
     align-items: center;
     padding: 0 var(--header-horizontal-padding);
     position: relative;
@@ -580,66 +604,42 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
     pointer-events: auto;
   }
 
-  /* ── Dual foreground layers (chapter + menu) ── */
-  .header-chapter-wrap,
-  .header-menu-wrap {
+  /* ── Chapter text — single instance, stencil paint ─────────────── */
+  .header-chapter-wrap {
     position: relative;
+    justify-self: center;
     height: 100%;
     display: flex;
+    flex-direction: column;
     align-items: center;
-  }
-
-  .header-chapter-wrap {
-    justify-self: center;
-    justify-content: center;
-    overflow: hidden;
-  }
-
-  /* Top layer is position:relative to establish the wrapper's size.
-     Bottom layer is position:absolute, overlaid exactly on top. */
-  .header-layer-top {
-    position: relative;
-    display: flex;
-    align-items: center;
-  }
-
-  .header-layer-bottom {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-  }
-
-  .header-chapter-wrap .header-layer-top,
-  .header-chapter-wrap .header-layer-bottom {
     justify-content: center;
     text-align: center;
-    flex-direction: column;
-  }
-
-  .header-menu-wrap .header-layer-top,
-  .header-menu-wrap .header-layer-bottom {
-    justify-content: center;
-  }
-
-  /* Top layer: visible above the boundary */
-  .header-layer-top {
-    clip-path: inset(0 0 calc(var(--header-height) - var(--header-boundary-px-local)) 0);
-  }
-
-  /* Bottom layer: visible below the boundary */
-  .header-layer-bottom {
-    clip-path: inset(var(--header-boundary-px-local) 0 0 0);
-  }
-
-  /* ── Chapter text styling ── */
-  .header-chapter-wrap {
-    opacity: 0;
-    transform: translateY(-3px);
-    transition: opacity 360ms ease-out, transform 360ms ease-out;
+    overflow: hidden;
     pointer-events: none;
     font-family: 'EB Garamond', Georgia, serif;
     line-height: 1.15;
+
+    /* Fade-in/out state */
+    opacity: 0;
+    transform: translateY(-3px);
+    transition: opacity 360ms ease-out, transform 360ms ease-out;
+
+    /* Single shared stencil paint — both label and title children
+       inherit `color: transparent` from this wrap, and the gradient
+       paints across the union of both lines as one continuous shape.
+       The hard stop is at --header-boundary-local-px, so the split
+       lands on the same device row as the occluder seam. */
+    background-image: linear-gradient(
+      to bottom,
+      var(--header-top-fg) 0,
+      var(--header-top-fg) var(--header-boundary-local-px),
+      var(--header-bottom-fg) var(--header-boundary-local-px),
+      var(--header-bottom-fg) 100%
+    );
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
   }
 
   .header-chapter-wrap[data-visible='true'] {
@@ -647,18 +647,13 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
     transform: translateY(0);
   }
 
-  .chapter-top .header-chapter-label { color: var(--header-top-chapter); }
-  .chapter-bottom .header-chapter-label { color: var(--header-bottom-chapter); }
-
   .header-chapter-label {
     display: block;
     font-style: italic;
     font-size: 0.85rem;
     letter-spacing: 0.01em;
+    color: inherit;
   }
-
-  .chapter-top .header-chapter-title { color: var(--header-top-fg); }
-  .chapter-bottom .header-chapter-title { color: var(--header-bottom-fg); }
 
   .header-chapter-title {
     display: block;
@@ -668,25 +663,26 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
     letter-spacing: 0.08em;
     opacity: 0.65;
     margin-top: 0.1rem;
+    color: inherit;
   }
 
-  /* ── Menu icon ── */
+  /* ── Menu icon — single instance, shared SVG gradient ──────────── */
   .header-menu {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 44px;
-    height: 44px;
+    width: var(--menu-button-size-px);
+    height: var(--menu-button-size-px);
     background: transparent;
     border: 0;
     padding: 0;
     cursor: pointer;
   }
 
-  .header-menu svg { display: block; }
-
-  .menu-top { color: var(--header-top-fg); }
-  .menu-bottom { color: var(--header-bottom-fg); }
+  .header-menu svg {
+    display: block;
+    pointer-events: none;
+  }
 }
 
 /* ==================================================================
@@ -921,6 +917,57 @@ html[data-debug='true'] .debug-hairlines {
   right: 0;
   height: 0;
   border-top: 1px dotted rgba(122, 122, 122, 0.4);
+}
+
+/* ── Header stencil verification hairlines ──
+   Positioned entirely from HEADER_GEOMETRY-derived CSS vars. If any of the
+   three hairlines diverges from the real rendered split on-screen, the
+   stencil has drifted from the shared boundary contract. */
+.debug-header-hairlines {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--header-total-height);
+  z-index: 61;
+  pointer-events: none;
+  display: none;
+}
+
+html[data-debug='true'] .debug-header-hairlines {
+  display: block;
+}
+
+.debug-occluder-split {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--header-boundary-global-px);
+  height: 0;
+  border-top: 1px dashed magenta;
+}
+
+.debug-chapter-split {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--safe-top) + var(--header-boundary-local-px));
+  height: 0;
+  border-top: 1px dashed cyan;
+}
+
+.debug-icon-split {
+  /* Horizontal: aligned to the menu button column, icon centered within button. */
+  position: absolute;
+  right: calc(
+    var(--header-horizontal-padding)
+    + (var(--menu-button-size-px) - var(--menu-icon-viewbox-w-px)) / 2
+  );
+  width: var(--menu-icon-viewbox-w-px);
+  /* Vertical: engine writes Math.round(safeTop + iconTop + ratio*iconH) px. */
+  top: var(--debug-icon-split-y-px);
+  height: 0;
+  border-top: 1px dashed yellow;
 }
 
 /* ==================================================================

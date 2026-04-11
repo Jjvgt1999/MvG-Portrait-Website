@@ -5,7 +5,12 @@ import type {
   InvalidationReason,
   TimelineFrameState,
 } from './types';
-import { SURFACE_COLORS, SURFACE_FG, SURFACE_CHAPTER } from './header-theme';
+import {
+  SURFACE_COLORS,
+  SURFACE_FG,
+  HEADER_GEOMETRY,
+  HEADER_GEOMETRY_TOLERANCE_PX,
+} from './header-theme';
 import type { HeaderSurface } from './header-theme';
 import { Spring } from './spring';
 import { ScrollController } from './scroll-controller';
@@ -69,10 +74,24 @@ export class ScrollEngine {
   private occluderEl: HTMLElement | null = null;
   private siteHeaderEl: HTMLElement | null = null;
   private headerRowEl: HTMLElement | null = null;
+  private menuStopTopEndEl: SVGStopElement | null = null;
+  private menuStopBotStartEl: SVGStopElement | null = null;
   private cachedHeaderTotalH = 48;
   private cachedSafeTop = 0;
   private cachedHeaderRowH = 48;
   private lastHeaderVars: Record<string, string> = {};
+  private lastIconRatioStr = '';
+  private contractAsserted = false;
+
+  /** Latest computed header stencil values, consumed by DebugLayer readouts. */
+  headerDebugSnapshot = {
+    globalBoundaryPx: 0,
+    localBoundaryPx: 0,
+    topSurface: 'paper' as HeaderSurface,
+    bottomSurface: 'paper' as HeaderSurface,
+    iconRatio: 0,
+    headerRowH: 48,
+  };
 
   // Springs
   readonly playheadSpring = new Spring(0, 180, 28);
@@ -168,19 +187,20 @@ export class ScrollEngine {
     // Cache header DOM refs + measure geometry
     this.cacheHeaderDOMRefs();
     this.measureHeaderGeometry();
-    // Set initial header CSS vars (paper surface, no boundary)
+    // Propagate geometry contract → CSS vars (single source of truth)
+    this.writeHeaderGeometryVars();
+    // Set initial header CSS vars (paper surface, boundary at top of zone so
+    // the uniform-state first paint uses bottom-surface color throughout).
     const root = document.documentElement.style;
     const paperBg = SURFACE_COLORS['paper'];
     const paperFg = SURFACE_FG['paper'];
-    const paperCh = SURFACE_CHAPTER['paper'];
     root.setProperty('--header-top-surface-bg', paperBg);
     root.setProperty('--header-bottom-surface-bg', paperBg);
     root.setProperty('--header-top-fg', paperFg);
     root.setProperty('--header-bottom-fg', paperFg);
-    root.setProperty('--header-top-chapter', paperCh);
-    root.setProperty('--header-bottom-chapter', paperCh);
-    root.setProperty('--header-boundary-px-global', this.cachedHeaderTotalH + 'px');
-    root.setProperty('--header-boundary-px-local', this.cachedHeaderRowH + 'px');
+    root.setProperty('--header-boundary-global-px', '0px');
+    root.setProperty('--header-boundary-local-px', '0px');
+    root.setProperty('--debug-icon-split-y-px', '0px');
     rootAttrs.setPastHero(false);
     rootAttrs.setTimelineReveal(false);
 
@@ -762,6 +782,15 @@ export class ScrollEngine {
     this.occluderEl = document.getElementById('header-occluder');
     this.siteHeaderEl = document.getElementById('site-header');
     this.headerRowEl = document.querySelector('.header-row');
+    // Menu stencil gradient stops (set by MobileHeader React markup).
+    // May be null during the first init pass if React hasn't mounted yet;
+    // updateHeaderSurface re-attempts lookup until both refs are live.
+    this.menuStopTopEndEl = document.getElementById(
+      'header-menu-stop-top-end'
+    ) as SVGStopElement | null;
+    this.menuStopBotStartEl = document.getElementById(
+      'header-menu-stop-bot-start'
+    ) as SVGStopElement | null;
   }
 
   /** Measure real rendered header geometry. Called on init + resize. */
@@ -773,12 +802,67 @@ export class ScrollEngine {
       : 0;
     this.cachedHeaderRowH =
       this.headerRowEl?.getBoundingClientRect().height ?? 48;
+    this.headerDebugSnapshot.headerRowH = this.cachedHeaderRowH;
+    this.assertHeaderGeometryContract();
   }
 
   /**
-   * Boundary-driven header surface detection.
-   * Computes topSurface, bottomSurface, and boundary position within the
-   * header zone. Writes 8 CSS vars (only when values change).
+   * Propagate HEADER_GEOMETRY values to CSS custom properties. Called once
+   * at init. Production CSS (.header-row, .header-menu) and debug CSS
+   * (.debug-icon-split) both read from these vars — one source of truth.
+   */
+  private writeHeaderGeometryVars(): void {
+    const r = document.documentElement.style;
+    r.setProperty('--header-height', HEADER_GEOMETRY.headerRowHeightPx + 'px');
+    r.setProperty(
+      '--header-horizontal-padding',
+      HEADER_GEOMETRY.headerHorizontalPaddingPx + 'px'
+    );
+    r.setProperty('--menu-button-size-px', HEADER_GEOMETRY.menuButtonSizePx + 'px');
+    r.setProperty('--menu-icon-top-px', HEADER_GEOMETRY.menuIconTopPx + 'px');
+    r.setProperty('--menu-icon-height-px', HEADER_GEOMETRY.menuIconHeightPx + 'px');
+    r.setProperty('--menu-icon-viewbox-w-px', HEADER_GEOMETRY.menuIconViewBoxW + 'px');
+    r.setProperty('--menu-icon-viewbox-h-px', HEADER_GEOMETRY.menuIconViewBoxH + 'px');
+  }
+
+  /**
+   * Dev-only tolerance check. Warns once if the DOM-measured header row
+   * height diverges from the geometry contract by more than the tolerance —
+   * indicating CSS `--header-height` and `HEADER_GEOMETRY.headerRowHeightPx`
+   * have drifted. Strict equality is never used because sub-pixel browser
+   * rounding routinely produces ±0.5 px variance even when CSS is correct.
+   */
+  private assertHeaderGeometryContract(): void {
+    if (this.contractAsserted) return;
+    if (this.cachedHeaderRowH <= 0) return; // not yet measured
+    const drift = Math.abs(
+      this.cachedHeaderRowH - HEADER_GEOMETRY.headerRowHeightPx
+    );
+    if (drift > HEADER_GEOMETRY_TOLERANCE_PX) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[header] CSS --header-height (measured ${this.cachedHeaderRowH}px) ` +
+          `diverges from HEADER_GEOMETRY.headerRowHeightPx ` +
+          `(${HEADER_GEOMETRY.headerRowHeightPx}px) by more than ` +
+          `${HEADER_GEOMETRY_TOLERANCE_PX}px`
+      );
+    }
+    this.contractAsserted = true;
+  }
+
+  /**
+   * Boundary-driven header surface detection — stencil architecture.
+   *
+   * Computes topSurface, bottomSurface, and the shared boundary position
+   * within the header zone. Writes one set of CSS vars that drive:
+   *   - occluder split (via --header-boundary-global-px)
+   *   - chapter text stencil (via --header-boundary-local-px)
+   *   - menu icon stencil (via direct <stop> offset attribute writes)
+   *
+   * All boundary values are `Math.round`-ed to integer px at the source,
+   * so every downstream consumer resolves to the same whole-pixel value
+   * and no gap/overlap can appear at the occluder seam.
+   *
    * Uses cached geometry — never queries DOM layout per frame.
    */
   private updateHeaderSurface(): void {
@@ -804,12 +888,34 @@ export class ScrollEngine {
       }
     }
 
-    // Clamp to valid ranges
-    const globalBoundaryPx = Math.max(0, Math.min(h, boundaryOffsetPx));
-    const localBoundaryPx = Math.max(
-      0,
-      Math.min(this.cachedHeaderRowH, globalBoundaryPx - this.cachedSafeTop)
+    // Clamp + round at source. Both vars are integer px so the occluder
+    // seam is always on a device-pixel row.
+    const globalBoundaryPx = Math.round(
+      Math.max(0, Math.min(h, boundaryOffsetPx))
     );
+    const localBoundaryPx = Math.round(
+      Math.max(
+        0,
+        Math.min(this.cachedHeaderRowH, globalBoundaryPx - this.cachedSafeTop)
+      )
+    );
+
+    // Icon-local ratio: where does the boundary fall inside the menu icon?
+    // 0 = above the icon (icon entirely bottom-surface colored),
+    // 1 = below the icon (icon entirely top-surface colored),
+    // 0..1 = boundary passes through the icon.
+    const { menuIconTopPx, menuIconHeightPx } = HEADER_GEOMETRY;
+    const iconRatio = Math.max(
+      0,
+      Math.min(1, (localBoundaryPx - menuIconTopPx) / menuIconHeightPx)
+    );
+
+    // Stash snapshot for DebugLayer readouts (zero cost when debug is off).
+    this.headerDebugSnapshot.globalBoundaryPx = globalBoundaryPx;
+    this.headerDebugSnapshot.localBoundaryPx = localBoundaryPx;
+    this.headerDebugSnapshot.topSurface = topSurface;
+    this.headerDebugSnapshot.bottomSurface = bottomSurface;
+    this.headerDebugSnapshot.iconRatio = iconRatio;
 
     // Build var map — only write changed values
     const vars: Record<string, string> = {
@@ -817,16 +923,48 @@ export class ScrollEngine {
       '--header-bottom-surface-bg': SURFACE_COLORS[bottomSurface],
       '--header-top-fg': SURFACE_FG[topSurface],
       '--header-bottom-fg': SURFACE_FG[bottomSurface],
-      '--header-top-chapter': SURFACE_CHAPTER[topSurface],
-      '--header-bottom-chapter': SURFACE_CHAPTER[bottomSurface],
-      '--header-boundary-px-global': globalBoundaryPx.toFixed(1) + 'px',
-      '--header-boundary-px-local': localBoundaryPx.toFixed(1) + 'px',
+      '--header-boundary-global-px': globalBoundaryPx + 'px',
+      '--header-boundary-local-px': localBoundaryPx + 'px',
     };
     const root = document.documentElement.style;
     for (const [k, v] of Object.entries(vars)) {
       if (this.lastHeaderVars[k] !== v) {
         root.setProperty(k, v);
         this.lastHeaderVars[k] = v;
+      }
+    }
+
+    // Menu icon gradient — direct <stop> offset attribute writes, change-guarded.
+    // Lookup is retried each frame until React has mounted the SVG.
+    if (!this.menuStopTopEndEl || !this.menuStopBotStartEl) {
+      this.menuStopTopEndEl = document.getElementById(
+        'header-menu-stop-top-end'
+      ) as SVGStopElement | null;
+      this.menuStopBotStartEl = document.getElementById(
+        'header-menu-stop-bot-start'
+      ) as SVGStopElement | null;
+    }
+    const iconRatioStr = iconRatio.toFixed(4);
+    if (
+      iconRatioStr !== this.lastIconRatioStr &&
+      this.menuStopTopEndEl &&
+      this.menuStopBotStartEl
+    ) {
+      this.menuStopTopEndEl.setAttribute('offset', iconRatioStr);
+      this.menuStopBotStartEl.setAttribute('offset', iconRatioStr);
+      this.lastIconRatioStr = iconRatioStr;
+    }
+
+    // Debug-only hairline Y — written only when debug overlay is active, so
+    // we don't trigger paint cost in production.
+    if (this.state.debug) {
+      const debugIconSplitY =
+        Math.round(
+          this.cachedSafeTop + menuIconTopPx + iconRatio * menuIconHeightPx
+        ) + 'px';
+      if (this.lastHeaderVars['--debug-icon-split-y-px'] !== debugIconSplitY) {
+        root.setProperty('--debug-icon-split-y-px', debugIconSplitY);
+        this.lastHeaderVars['--debug-icon-split-y-px'] = debugIconSplitY;
       }
     }
 
