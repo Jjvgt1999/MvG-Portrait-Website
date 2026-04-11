@@ -27,14 +27,10 @@
     /* Initial values — engine overrides these on first tick. Defaults are
        uniform (top == bottom) so the first paint before the engine runs
        shows a single flat surface with no visible split or seam. */
-    --header-top-surface-bg: #f5f1e8;
-    --header-bottom-surface-bg: #f5f1e8;
     --header-top-fg: #1a1a1a;
     --header-bottom-fg: #1a1a1a;
-    --header-boundary-global-px: 0px;
     --header-boundary-local-px: 0px;
 
-    --header-z-occluder: 40;
     --header-z-ui: 50;
     --header-horizontal-padding: 14px;
 
@@ -519,64 +515,26 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
 /* ==================================================================
  * Stencil-based mobile header (< 768px only)
  *
- * Layer A (#header-occluder): passive surface continuation. Two solid
- *   absolute children butted at an integer px boundary. Paints whatever
- *   surfaces are behind the header zone — never reads as its own bar.
+ * The header is a single transparent chrome layer (#site-header).
+ * There is no occluder — the page sections' own full-bleed backgrounds
+ * (`.bg-section-*`) scroll natively behind the fixed header, so the
+ * compositor paints surface continuation pixel-perfectly with zero JS
+ * involvement. Every section has generous top padding (≥ 4 rem) so the
+ * top 48 px of the viewport is always over padding, never content.
  *
- * Layer B (#site-header): single-instance stencil foreground. Chapter
- *   text is HTML with background-clip: text + a linear-gradient whose
- *   hard stop is at --header-boundary-local-px. Menu icon is a single
- *   SVG with a shared <linearGradient> whose stop offsets are written
- *   directly by the engine.
- *
- * One shared boundary authority:
- *   --header-boundary-global-px  → occluder children sizing
- *   --header-boundary-local-px   → chapter text gradient stop
- *   (engine writes integer px values, rounded at source)
+ * Single-instance stencil foreground: chapter text is HTML with
+ *   background-clip: text + a linear-gradient whose hard stop is at
+ *   --header-boundary-local-px. The menu icon is a single SVG with a
+ *   shared <linearGradient> whose stop offsets are written directly by
+ *   the engine. Engine writes integer px for --header-boundary-local-px.
  * ================================================================== */
 
-/* Desktop: both layers hidden */
-#header-occluder,
+/* Desktop: hidden */
 #site-header { display: none; }
 
 @media (max-width: 767px) {
 
-  /* ── Layer A: Passive occluder ─────────────────────────────────── */
-  #header-occluder {
-    display: block;
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: var(--header-total-height);
-    z-index: var(--header-z-occluder);
-    pointer-events: none;
-    overflow: hidden;
-  }
-
-  /* Two solid rects butted at the same shared boundary var. The engine
-     rounds globalBoundaryPx to an integer at source, so both rules
-     resolve to identical whole-pixel values — no gap, no overlap, no
-     sub-pixel seam on iPhone notch heights. */
-  .occluder-top {
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
-    height: var(--header-boundary-global-px);
-    background: var(--header-top-surface-bg);
-  }
-
-  .occluder-bottom {
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: var(--header-boundary-global-px);
-    bottom: 0;
-    background: var(--header-bottom-surface-bg);
-  }
-
-  /* ── Layer B: Transparent stencil chrome ───────────────────────── */
+  /* ── Transparent stencil chrome ────────────────────────────────── */
   #site-header {
     display: block;
     position: fixed;
@@ -941,15 +899,6 @@ html[data-debug='true'] .debug-hairlines {
 
 html[data-debug='true'] .debug-header-hairlines {
   display: block;
-}
-
-.debug-occluder-split {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: var(--header-boundary-global-px);
-  height: 0;
-  border-top: 1px dashed magenta;
 }
 
 .debug-chapter-split {

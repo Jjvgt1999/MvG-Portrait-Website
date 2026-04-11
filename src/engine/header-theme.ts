@@ -1,9 +1,9 @@
 /**
- * Centralized header surface color maps + geometry contract.
+ * Centralized header stencil color map + geometry contract.
  *
- * - SURFACE_COLORS / SURFACE_FG: the engine looks up top/bottom surfaces and
- *   writes these as CSS vars each frame. No theme objects, no if-blocks — just
- *   flat color maps per surface.
+ * - SURFACE_FG: the engine looks up the top/bottom surfaces at the header
+ *   zone edges and writes these as CSS vars each frame. Chapter text and
+ *   menu icon stencils both draw from this single pair.
  * - HEADER_GEOMETRY: single source of truth for header layout metrics. Engine
  *   math, React SVG markup, production CSS, and debug CSS all consume this —
  *   either directly (TS import) or indirectly (via CSS vars the engine writes
@@ -12,13 +12,6 @@
 
 export type HeaderSurface = 'paper' | 'ink' | 'dust';
 export type HeaderTheme = 'dark-surface' | 'light-surface';
-
-/** Occluder background per surface. */
-export const SURFACE_COLORS: Record<HeaderSurface, string> = {
-  paper: '#f5f1e8',
-  ink: '#1a1a1a',
-  dust: '#7a7a7a',
-};
 
 /**
  * Stencil foreground paint per surface. Both chapter text and menu icon

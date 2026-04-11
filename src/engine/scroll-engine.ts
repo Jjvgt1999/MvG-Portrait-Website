@@ -6,7 +6,6 @@ import type {
   TimelineFrameState,
 } from './types';
 import {
-  SURFACE_COLORS,
   SURFACE_FG,
   HEADER_GEOMETRY,
   HEADER_GEOMETRY_TOLERANCE_PX,
@@ -71,7 +70,6 @@ export class ScrollEngine {
   surfaceRegions: SurfaceRegion[] = [];
 
   // Header DOM ref caches (set on init + resize, NOT queried per frame)
-  private occluderEl: HTMLElement | null = null;
   private siteHeaderEl: HTMLElement | null = null;
   private headerRowEl: HTMLElement | null = null;
   private menuStopTopEndEl: SVGStopElement | null = null;
@@ -85,7 +83,6 @@ export class ScrollEngine {
 
   /** Latest computed header stencil values, consumed by DebugLayer readouts. */
   headerDebugSnapshot = {
-    globalBoundaryPx: 0,
     localBoundaryPx: 0,
     topSurface: 'paper' as HeaderSurface,
     bottomSurface: 'paper' as HeaderSurface,
@@ -189,16 +186,13 @@ export class ScrollEngine {
     this.measureHeaderGeometry();
     // Propagate geometry contract → CSS vars (single source of truth)
     this.writeHeaderGeometryVars();
-    // Set initial header CSS vars (paper surface, boundary at top of zone so
-    // the uniform-state first paint uses bottom-surface color throughout).
+    // Set initial header stencil CSS vars (paper surface foreground, so the
+    // menu icon and — once pastHero — the chapter text are legible on the
+    // default paper surface before the first engine tick runs).
     const root = document.documentElement.style;
-    const paperBg = SURFACE_COLORS['paper'];
     const paperFg = SURFACE_FG['paper'];
-    root.setProperty('--header-top-surface-bg', paperBg);
-    root.setProperty('--header-bottom-surface-bg', paperBg);
     root.setProperty('--header-top-fg', paperFg);
     root.setProperty('--header-bottom-fg', paperFg);
-    root.setProperty('--header-boundary-global-px', '0px');
     root.setProperty('--header-boundary-local-px', '0px');
     root.setProperty('--debug-icon-split-y-px', '0px');
     rootAttrs.setPastHero(false);
@@ -779,7 +773,6 @@ export class ScrollEngine {
 
   /** Cache DOM refs for header elements. Called on init + geometry update. */
   private cacheHeaderDOMRefs(): void {
-    this.occluderEl = document.getElementById('header-occluder');
     this.siteHeaderEl = document.getElementById('site-header');
     this.headerRowEl = document.querySelector('.header-row');
     // Menu stencil gradient stops (set by MobileHeader React markup).
@@ -796,7 +789,7 @@ export class ScrollEngine {
   /** Measure real rendered header geometry. Called on init + resize. */
   private measureHeaderGeometry(): void {
     this.cachedHeaderTotalH =
-      this.occluderEl?.getBoundingClientRect().height ?? 48;
+      this.siteHeaderEl?.getBoundingClientRect().height ?? 48;
     this.cachedSafeTop = this.siteHeaderEl
       ? parseFloat(getComputedStyle(this.siteHeaderEl).paddingTop) || 0
       : 0;
@@ -851,17 +844,18 @@ export class ScrollEngine {
   }
 
   /**
-   * Boundary-driven header surface detection — stencil architecture.
+   * Boundary-driven header stencil foreground detection.
    *
-   * Computes topSurface, bottomSurface, and the shared boundary position
-   * within the header zone. Writes one set of CSS vars that drive:
-   *   - occluder split (via --header-boundary-global-px)
-   *   - chapter text stencil (via --header-boundary-local-px)
-   *   - menu icon stencil (via direct <stop> offset attribute writes)
+   * There is no occluder — page sections paint their own full-bleed
+   * backgrounds natively behind the fixed header. The engine only
+   * computes what the stencil foreground (chapter text + menu icon)
+   * needs: the two surface-derived fg colors and the boundary position
+   * inside the header row where the foreground paint should split.
    *
-   * All boundary values are `Math.round`-ed to integer px at the source,
-   * so every downstream consumer resolves to the same whole-pixel value
-   * and no gap/overlap can appear at the occluder seam.
+   * Writes:
+   *   - --header-top-fg / --header-bottom-fg  → stencil paint colors
+   *   - --header-boundary-local-px            → chapter text gradient stop
+   *   - menu icon <stop> offset                → direct attribute writes
    *
    * Uses cached geometry — never queries DOM layout per frame.
    */
@@ -888,15 +882,13 @@ export class ScrollEngine {
       }
     }
 
-    // Clamp + round at source. Both vars are integer px so the occluder
-    // seam is always on a device-pixel row.
-    const globalBoundaryPx = Math.round(
-      Math.max(0, Math.min(h, boundaryOffsetPx))
-    );
+    // Clamp + round at source. Integer px so the stencil text gradient
+    // stop always lands on a device-pixel row.
+    const clampedGlobalPx = Math.max(0, Math.min(h, boundaryOffsetPx));
     const localBoundaryPx = Math.round(
       Math.max(
         0,
-        Math.min(this.cachedHeaderRowH, globalBoundaryPx - this.cachedSafeTop)
+        Math.min(this.cachedHeaderRowH, clampedGlobalPx - this.cachedSafeTop)
       )
     );
 
@@ -911,7 +903,6 @@ export class ScrollEngine {
     );
 
     // Stash snapshot for DebugLayer readouts (zero cost when debug is off).
-    this.headerDebugSnapshot.globalBoundaryPx = globalBoundaryPx;
     this.headerDebugSnapshot.localBoundaryPx = localBoundaryPx;
     this.headerDebugSnapshot.topSurface = topSurface;
     this.headerDebugSnapshot.bottomSurface = bottomSurface;
@@ -919,11 +910,8 @@ export class ScrollEngine {
 
     // Build var map — only write changed values
     const vars: Record<string, string> = {
-      '--header-top-surface-bg': SURFACE_COLORS[topSurface],
-      '--header-bottom-surface-bg': SURFACE_COLORS[bottomSurface],
       '--header-top-fg': SURFACE_FG[topSurface],
       '--header-bottom-fg': SURFACE_FG[bottomSurface],
-      '--header-boundary-global-px': globalBoundaryPx + 'px',
       '--header-boundary-local-px': localBoundaryPx + 'px',
     };
     const root = document.documentElement.style;
