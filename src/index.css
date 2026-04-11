@@ -594,7 +594,11 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
   .header-row {
     height: var(--header-height);
     display: grid;
-    grid-template-columns: 1fr var(--menu-button-size-px);
+    /* Mirror-spacer on the left so the 1fr middle column is row-centered.
+       Column 1 is an empty spacer matching the menu button width on the
+       right; the chapter text in column 2 sits at the true row center. */
+    grid-template-columns:
+      var(--menu-button-size-px) 1fr var(--menu-button-size-px);
     align-items: center;
     padding: 0 var(--header-horizontal-padding);
     position: relative;
@@ -607,7 +611,7 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
   /* ── Chapter text — single instance, stencil paint ─────────────── */
   .header-chapter-wrap {
     position: relative;
-    justify-self: center;
+    grid-column: 2;
     height: 100%;
     display: flex;
     flex-direction: column;
@@ -650,14 +654,14 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
   .header-chapter-label {
     display: block;
     font-style: italic;
-    font-size: 0.85rem;
+    font-size: 1rem;
     letter-spacing: 0.01em;
     color: inherit;
   }
 
   .header-chapter-title {
     display: block;
-    font-size: 0.65rem;
+    font-size: 0.72rem;
     font-style: normal;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -668,6 +672,7 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
 
   /* ── Menu icon — single instance, shared SVG gradient ──────────── */
   .header-menu {
+    grid-column: 3;
     display: inline-flex;
     align-items: center;
     justify-content: center;

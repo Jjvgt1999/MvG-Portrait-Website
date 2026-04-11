@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useEngine } from '@/hooks/useEngine';
 import { chapters } from '@/data/chapters';
 import { scrollEngine } from '@/engine/scroll-engine';
@@ -73,28 +73,6 @@ export function MobileHeader() {
   const activeId = useEngine((s) => s.activeChapterId);
   const pastHero = useEngine((s) => s.pastHero);
 
-  // --- Chapter cross-fade (360ms) ---
-  const [displayedId, setDisplayedId] = useState(activeId);
-  const [phase, setPhase] = useState<'visible' | 'fading-out'>('visible');
-  const fadeTimer = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (activeId === displayedId) return;
-    setPhase('fading-out');
-    if (fadeTimer.current !== null) clearTimeout(fadeTimer.current);
-    fadeTimer.current = window.setTimeout(() => {
-      setDisplayedId(activeId);
-      setPhase('visible');
-      fadeTimer.current = null;
-    }, 360);
-    return () => {
-      if (fadeTimer.current !== null) {
-        clearTimeout(fadeTimer.current);
-        fadeTimer.current = null;
-      }
-    };
-  }, [activeId, displayedId]);
-
   // --- Dev-only singleton invariant: the menu gradient id is global.
   //     If a second MobileHeader ever mounts, the ids collide. ---
   useEffect(() => {
@@ -133,10 +111,12 @@ export function MobileHeader() {
     [closeToc]
   );
 
-  const chapter = chapters.find((c) => c.id === displayedId);
-  const showChapterText = pastHero && phase === 'visible';
-
-  // Chapter text content — rendered exactly once
+  // Chapter text content — updates instantly on activeId change. The CSS
+  // opacity transition on `data-visible` still handles the pastHero
+  // entry/exit; chapter-to-chapter swaps are immediate so the text never
+  // sits in a fade-out dead window during rapid scroll.
+  const chapter = chapters.find((c) => c.id === activeId);
+  const showChapterText = pastHero;
   const chapterLabel = chapter?.label || '';
   const chapterTitle = chapter?.title || '';
 
