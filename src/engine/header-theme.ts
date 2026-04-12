@@ -24,6 +24,17 @@ export const SURFACE_FG: Record<HeaderSurface, string> = {
 };
 
 /**
+ * Surface background colors — underlay pseudo-element paints these to occlude
+ * content behind the fixed header. Same surface pair as SURFACE_FG, same
+ * boundary position — one source of truth.
+ */
+export const SURFACE_COLORS: Record<HeaderSurface, string> = {
+  paper: '#f5f1e8',
+  ink: '#1a1a1a',
+  dust: '#7a7a7a',
+};
+
+/**
  * Header layout geometry. Single source of truth.
  *
  * Engine math imports these directly. At init the engine propagates each

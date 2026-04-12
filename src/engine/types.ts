@@ -63,8 +63,6 @@ export type EngineState = {
   hoveringRightEdge: boolean;
   /** Derived: pastHero && (scrollActive || hoveringRightEdge || zoomMode !== 'idle') */
   timelineReveal: boolean;
-  /** Surface color behind the header area (probed at header bottom edge). */
-  headerSurface: HeaderSurface;
   debug: boolean;
 };
 

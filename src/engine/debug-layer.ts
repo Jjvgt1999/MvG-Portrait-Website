@@ -40,10 +40,11 @@ export class DebugLayer {
         <dt>timelineMode</dt><dd data-key="timelineMode">collapsed</dd>
         <dt>zoomScale</dt><dd data-key="zoomScale">1.00</dd>
         <dt>scrubbing</dt><dd data-key="scrubbing">false</dd>
-        <dt>localBoundaryPx</dt><dd data-key="localBoundaryPx">0</dd>
+        <dt>boundaryZonePx</dt><dd data-key="boundaryZonePx">0</dd>
+        <dt>boundaryRowPx</dt><dd data-key="boundaryRowPx">0</dd>
+        <dt>boundariesInZone</dt><dd data-key="boundariesInZone">0</dd>
         <dt>topSurface</dt><dd data-key="topSurface">paper</dd>
         <dt>bottomSurface</dt><dd data-key="bottomSurface">paper</dd>
-        <dt>iconRatio</dt><dd data-key="iconRatio">0.0000</dd>
         <dt>headerRowH</dt><dd data-key="headerRowH">48</dd>
       </dl>
     `;
@@ -56,8 +57,9 @@ export class DebugLayer {
     this.headerHairlinesEl.className = 'debug-header-hairlines';
     this.headerHairlinesEl.setAttribute('aria-hidden', 'true');
     this.headerHairlinesEl.innerHTML = `
-      <div class="debug-chapter-split"></div>
-      <div class="debug-icon-split"></div>
+      <div class="debug-zone-boundary"></div>
+      <div class="debug-row-top"></div>
+      <div class="debug-row-boundary"></div>
     `;
     document.body.appendChild(this.headerHairlinesEl);
   }
@@ -113,10 +115,11 @@ export class DebugLayer {
     set('scrubbing', s.scrubbing ? 'true' : 'false');
 
     const snap = this.engine.headerDebugSnapshot;
-    set('localBoundaryPx', snap.localBoundaryPx.toString());
+    set('boundaryZonePx', snap.boundaryZonePx.toFixed(1));
+    set('boundaryRowPx', snap.boundaryRowPx.toFixed(1));
+    set('boundariesInZone', snap.boundariesInZone.toString());
     set('topSurface', snap.topSurface);
     set('bottomSurface', snap.bottomSurface);
-    set('iconRatio', snap.iconRatio.toFixed(4));
     set('headerRowH', snap.headerRowH.toFixed(1));
   }
 }

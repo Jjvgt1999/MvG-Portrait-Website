@@ -7,6 +7,7 @@ import type {
 } from './types';
 import {
   SURFACE_FG,
+  SURFACE_COLORS,
   HEADER_GEOMETRY,
   HEADER_GEOMETRY_TOLERANCE_PX,
 } from './header-theme';
@@ -58,7 +59,6 @@ function makeInitialState(): EngineState {
     scrollActive: false,
     hoveringRightEdge: false,
     timelineReveal: false,
-    headerSurface: 'paper',
     debug: false,
   };
 }
@@ -72,21 +72,20 @@ export class ScrollEngine {
   // Header DOM ref caches (set on init + resize, NOT queried per frame)
   private siteHeaderEl: HTMLElement | null = null;
   private headerRowEl: HTMLElement | null = null;
-  private menuStopTopEndEl: SVGStopElement | null = null;
-  private menuStopBotStartEl: SVGStopElement | null = null;
   private cachedHeaderTotalH = 48;
   private cachedSafeTop = 0;
   private cachedHeaderRowH = 48;
   private lastHeaderVars: Record<string, string> = {};
-  private lastIconRatioStr = '';
   private contractAsserted = false;
+  private multiWarnShown = false;
 
   /** Latest computed header stencil values, consumed by DebugLayer readouts. */
   headerDebugSnapshot = {
-    localBoundaryPx: 0,
+    boundaryZonePx: 0,
+    boundaryRowPx: 0,
+    boundariesInZone: 0,
     topSurface: 'paper' as HeaderSurface,
     bottomSurface: 'paper' as HeaderSurface,
-    iconRatio: 0,
     headerRowH: 48,
   };
 
@@ -186,15 +185,18 @@ export class ScrollEngine {
     this.measureHeaderGeometry();
     // Propagate geometry contract → CSS vars (single source of truth)
     this.writeHeaderGeometryVars();
-    // Set initial header stencil CSS vars (paper surface foreground, so the
-    // menu icon and — once pastHero — the chapter text are legible on the
-    // default paper surface before the first engine tick runs).
+    // Set initial header stencil + underlay CSS vars (paper surface, so the
+    // underlay and foreground stencils are correct on first paint before the
+    // engine tick runs).
     const root = document.documentElement.style;
+    const paperBg = SURFACE_COLORS['paper'];
     const paperFg = SURFACE_FG['paper'];
-    root.setProperty('--header-top-fg', paperFg);
-    root.setProperty('--header-bottom-fg', paperFg);
-    root.setProperty('--header-boundary-local-px', '0px');
-    root.setProperty('--debug-icon-split-y-px', '0px');
+    root.setProperty('--header-surface-top', paperBg);
+    root.setProperty('--header-surface-bottom', paperBg);
+    root.setProperty('--header-fg-top', paperFg);
+    root.setProperty('--header-fg-bottom', paperFg);
+    root.setProperty('--header-boundary-zone-px', '0px');
+    root.setProperty('--header-boundary-row-px', '0px');
     rootAttrs.setPastHero(false);
     rootAttrs.setTimelineReveal(false);
 
@@ -775,15 +777,6 @@ export class ScrollEngine {
   private cacheHeaderDOMRefs(): void {
     this.siteHeaderEl = document.getElementById('site-header');
     this.headerRowEl = document.querySelector('.header-row');
-    // Menu stencil gradient stops (set by MobileHeader React markup).
-    // May be null during the first init pass if React hasn't mounted yet;
-    // updateHeaderSurface re-attempts lookup until both refs are live.
-    this.menuStopTopEndEl = document.getElementById(
-      'header-menu-stop-top-end'
-    ) as SVGStopElement | null;
-    this.menuStopBotStartEl = document.getElementById(
-      'header-menu-stop-bot-start'
-    ) as SVGStopElement | null;
   }
 
   /** Measure real rendered header geometry. Called on init + resize. */
@@ -844,75 +837,92 @@ export class ScrollEngine {
   }
 
   /**
-   * Boundary-driven header stencil foreground detection.
+   * Boundary-driven header surface detection.
    *
-   * There is no occluder — page sections paint their own full-bleed
-   * backgrounds natively behind the fixed header. The engine only
-   * computes what the stencil foreground (chapter text + menu icon)
-   * needs: the two surface-derived fg colors and the boundary position
-   * inside the header row where the foreground paint should split.
+   * One boundary → two paint consumers:
+   *   Underlay (::before pseudo): SURFACE_COLORS, zone-local boundary
+   *   Foreground stencil (text + icon): SURFACE_FG, row-local boundary
    *
-   * Writes:
-   *   - --header-top-fg / --header-bottom-fg  → stencil paint colors
-   *   - --header-boundary-local-px            → chapter text gradient stop
-   *   - menu icon <stop> offset                → direct attribute writes
+   * Boundary count is authoritative. Edge probes never override it.
    *
-   * Uses cached geometry — never queries DOM layout per frame.
+   * Writes (all change-guarded):
+   *   --header-surface-top / --header-surface-bottom  → underlay gradient
+   *   --header-fg-top / --header-fg-bottom            → foreground stencil
+   *   --header-boundary-zone-px                       → underlay stop
+   *   --header-boundary-row-px                        → foreground stop
    */
   private updateHeaderSurface(): void {
     const h = this.cachedHeaderTotalH;
-    const sy = this.state.rawScrollY;
-    const zoneTop = sy;
-    const zoneBottom = sy + h;
+    const safeTop = this.cachedSafeTop;
+    const rowH = this.cachedHeaderRowH;
+    const zoneTop = this.state.rawScrollY;
+    const dpr = window.devicePixelRatio || 1;
 
-    // Surface at zone edges
-    const topSurface = this.surfaceAtY(zoneTop + 1);
-    const bottomSurface = this.surfaceAtY(zoneBottom - 1);
-
-    // Boundary detection inside the zone
-    let boundaryOffsetPx = h; // default: no boundary, everything is topSurface
-    if (topSurface !== bottomSurface) {
-      // Walk sorted surfaceRegions. For overlapping/nested regions,
-      // later entries win — don't break, keep walking.
-      for (const region of this.surfaceRegions) {
-        if (region.startPx > zoneTop && region.startPx < zoneBottom) {
-          boundaryOffsetPx = region.startPx - zoneTop;
-          // Don't break: a nested region starting later may be more specific
-        }
+    // (1) Count boundaries in the zone — single source of truth
+    let boundariesInZone = 0;
+    let rawBoundaryZonePx = h; // default: no boundary found
+    for (const region of this.surfaceRegions) {
+      if (region.startPx > zoneTop && region.startPx < zoneTop + h) {
+        rawBoundaryZonePx = region.startPx - zoneTop;
+        boundariesInZone++;
       }
     }
 
-    // Clamp + round at source. Integer px so the stencil text gradient
-    // stop always lands on a device-pixel row.
-    const clampedGlobalPx = Math.max(0, Math.min(h, boundaryOffsetPx));
-    const localBoundaryPx = Math.round(
-      Math.max(
-        0,
-        Math.min(this.cachedHeaderRowH, clampedGlobalPx - this.cachedSafeTop)
-      )
-    );
+    let topSurface: HeaderSurface;
+    let bottomSurface: HeaderSurface;
+    let boundaryZonePx: number;
+    let boundaryRowPx: number;
 
-    // Icon-local ratio: where does the boundary fall inside the menu icon?
-    // 0 = above the icon (icon entirely bottom-surface colored),
-    // 1 = below the icon (icon entirely top-surface colored),
-    // 0..1 = boundary passes through the icon.
-    const { menuIconTopPx, menuIconHeightPx } = HEADER_GEOMETRY;
-    const iconRatio = Math.max(
-      0,
-      Math.min(1, (localBoundaryPx - menuIconTopPx) / menuIconHeightPx)
-    );
+    // (2) Branch on boundary count — NOT on edge probes
+    if (boundariesInZone > 1) {
+      // Invariant violation — multiple boundaries in zone
+      if (!this.multiWarnShown) {
+        // eslint-disable-next-line no-console
+        console.warn('[header] multiple boundaries in header zone — collapsing to midpoint');
+        this.multiWarnShown = true;
+      }
+      const midSurface = this.surfaceAtY(zoneTop + h / 2);
+      topSurface = midSurface;
+      bottomSurface = midSurface;
+      boundaryZonePx = 0;
+      boundaryRowPx = 0;
+    } else if (boundariesInZone === 0) {
+      // Uniform zone — no boundary. Probe midpoint.
+      const uniformSurface = this.surfaceAtY(zoneTop + h / 2);
+      topSurface = uniformSurface;
+      bottomSurface = uniformSurface;
+      boundaryZonePx = 0;
+      boundaryRowPx = 0;
+    } else {
+      // Exactly one boundary — snap once, derive row value
+      boundaryZonePx = Math.round(rawBoundaryZonePx * dpr) / dpr;
+      boundaryRowPx = Math.max(0, Math.min(rowH, boundaryZonePx - safeTop));
 
-    // Stash snapshot for DebugLayer readouts (zero cost when debug is off).
-    this.headerDebugSnapshot.localBoundaryPx = localBoundaryPx;
+      // Probe epsilon: half a device pixel, clamped to half distance to zone edge
+      const probeEpsilon = Math.min(
+        0.5 / dpr,
+        rawBoundaryZonePx / 2,
+        (h - rawBoundaryZonePx) / 2
+      );
+      topSurface = this.surfaceAtY(zoneTop + rawBoundaryZonePx - probeEpsilon);
+      bottomSurface = this.surfaceAtY(zoneTop + rawBoundaryZonePx + probeEpsilon);
+    }
+
+    // Stash snapshot for DebugLayer readouts
+    this.headerDebugSnapshot.boundaryZonePx = boundaryZonePx;
+    this.headerDebugSnapshot.boundaryRowPx = boundaryRowPx;
+    this.headerDebugSnapshot.boundariesInZone = boundariesInZone;
     this.headerDebugSnapshot.topSurface = topSurface;
     this.headerDebugSnapshot.bottomSurface = bottomSurface;
-    this.headerDebugSnapshot.iconRatio = iconRatio;
 
-    // Build var map — only write changed values
+    // (3) Publish — same surfaces, two coordinate frames
     const vars: Record<string, string> = {
-      '--header-top-fg': SURFACE_FG[topSurface],
-      '--header-bottom-fg': SURFACE_FG[bottomSurface],
-      '--header-boundary-local-px': localBoundaryPx + 'px',
+      '--header-surface-top': SURFACE_COLORS[topSurface],
+      '--header-surface-bottom': SURFACE_COLORS[bottomSurface],
+      '--header-fg-top': SURFACE_FG[topSurface],
+      '--header-fg-bottom': SURFACE_FG[bottomSurface],
+      '--header-boundary-zone-px': boundaryZonePx + 'px',
+      '--header-boundary-row-px': boundaryRowPx + 'px',
     };
     const root = document.documentElement.style;
     for (const [k, v] of Object.entries(vars)) {
@@ -920,46 +930,6 @@ export class ScrollEngine {
         root.setProperty(k, v);
         this.lastHeaderVars[k] = v;
       }
-    }
-
-    // Menu icon gradient — direct <stop> offset attribute writes, change-guarded.
-    // Lookup is retried each frame until React has mounted the SVG.
-    if (!this.menuStopTopEndEl || !this.menuStopBotStartEl) {
-      this.menuStopTopEndEl = document.getElementById(
-        'header-menu-stop-top-end'
-      ) as SVGStopElement | null;
-      this.menuStopBotStartEl = document.getElementById(
-        'header-menu-stop-bot-start'
-      ) as SVGStopElement | null;
-    }
-    const iconRatioStr = iconRatio.toFixed(4);
-    if (
-      iconRatioStr !== this.lastIconRatioStr &&
-      this.menuStopTopEndEl &&
-      this.menuStopBotStartEl
-    ) {
-      this.menuStopTopEndEl.setAttribute('offset', iconRatioStr);
-      this.menuStopBotStartEl.setAttribute('offset', iconRatioStr);
-      this.lastIconRatioStr = iconRatioStr;
-    }
-
-    // Debug-only hairline Y — written only when debug overlay is active, so
-    // we don't trigger paint cost in production.
-    if (this.state.debug) {
-      const debugIconSplitY =
-        Math.round(
-          this.cachedSafeTop + menuIconTopPx + iconRatio * menuIconHeightPx
-        ) + 'px';
-      if (this.lastHeaderVars['--debug-icon-split-y-px'] !== debugIconSplitY) {
-        root.setProperty('--debug-icon-split-y-px', debugIconSplitY);
-        this.lastHeaderVars['--debug-icon-split-y-px'] = debugIconSplitY;
-      }
-    }
-
-    // Discrete state for React subscribers
-    if (bottomSurface !== this.state.headerSurface) {
-      this.state.headerSurface = bottomSurface;
-      document.documentElement.dataset.headerSurface = bottomSurface;
     }
   }
 
