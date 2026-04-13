@@ -24,16 +24,9 @@
     --header-height: 48px;
     --header-total-height: calc(var(--safe-top) + var(--header-height));
 
-    /* Initial values — engine overrides these on first tick. Defaults are
-       uniform (top == bottom) so the first paint before the engine runs
-       shows a single flat surface with no visible split or seam. */
-    --header-surface-top: #f5f1e8;
-    --header-surface-bottom: #f5f1e8;
-    --header-fg-top: #1a1a1a;
-    --header-fg-bottom: #1a1a1a;
-    --header-boundary-zone-px: 0px;
-    --header-boundary-row-px: 0px;
-    --header-row-h: var(--header-height);
+    /* Animated header vars (surface colors, boundary positions, --header-row-h)
+       are scoped to #site-header and .header-row — NOT on :root.
+       See the @media block below for fallback initial values. */
 
     --header-z-ui: 50;
     --header-horizontal-padding: 14px;
@@ -547,6 +540,12 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
     z-index: var(--header-z-ui);
     background: transparent;
     pointer-events: none;
+
+    /* Zone-level animated vars — scoped here, engine-written per frame.
+       CSS fallbacks match paper surface for correct first paint. */
+    --header-surface-top: #f5f1e8;
+    --header-surface-bottom: #f5f1e8;
+    --header-boundary-zone-px: 0px;
   }
 
   /* Full-zone underlay — single linear-gradient driven by the engine's
@@ -566,6 +565,7 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
     background-size: 100% var(--header-total-height);
     background-repeat: no-repeat;
     pointer-events: none;
+    transition: none;
   }
 
   .header-row {
@@ -579,6 +579,13 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
     align-items: center;
     padding: 0 var(--header-horizontal-padding);
     position: relative;
+
+    /* Row-level animated vars — scoped here, engine-written per frame.
+       --header-row-h is runtime-measured (JS-owned), not a CSS alias. */
+    --header-fg-top: #1a1a1a;
+    --header-fg-bottom: #1a1a1a;
+    --header-boundary-row-px: 0px;
+    --header-row-h: 48px;
   }
 
   .header-row > * {
@@ -602,10 +609,15 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
     font-family: 'EB Garamond', Georgia, serif;
     line-height: 1.15;
 
-    /* Fade-in/out state */
+    /* Fade-in/out state.
+       IMPORTANT: transition-property must NEVER include background-image,
+       background, color, or -webkit-text-fill-color — those are engine-animated
+       via CSS custom properties and must update instantly each frame. */
     opacity: 0;
     transform: translateY(-3px);
-    transition: opacity 360ms ease-out, transform 360ms ease-out;
+    transition-property: opacity, transform;
+    transition-duration: 360ms;
+    transition-timing-function: ease-out;
 
     /* Shared foreground stencil — row-local boundary from the engine.
        Same boundary as the underlay, expressed in row coordinates. */
@@ -687,6 +699,7 @@ html[data-chapter-bg='dust'] .current-chapter-indicator .cci-title {
     -webkit-mask-mode: alpha;
     mask-mode: alpha;
     pointer-events: none;
+    transition: none;
   }
 }
 

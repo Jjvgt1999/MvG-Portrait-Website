@@ -121,5 +121,15 @@ export class DebugLayer {
     set('topSurface', snap.topSurface);
     set('bottomSurface', snap.bottomSurface);
     set('headerRowH', snap.headerRowH.toFixed(1));
+
+    // Replicate scoped boundary vars onto debug hairlines. They are children
+    // of body (not #site-header / .header-row) so they don't inherit the
+    // scoped values. Use exact snapped values — no toFixed quantization.
+    this.headerHairlinesEl.style.setProperty(
+      '--header-boundary-zone-px', `${snap.boundaryZonePx}px`
+    );
+    this.headerHairlinesEl.style.setProperty(
+      '--header-boundary-row-px', `${snap.boundaryRowPx}px`
+    );
   }
 }

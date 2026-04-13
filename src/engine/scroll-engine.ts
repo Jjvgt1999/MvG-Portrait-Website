@@ -27,6 +27,14 @@ const TIMELINE_WIDTH_COLLAPSED = 48;
 const TIMELINE_WIDTH_EXPANDED_VW = 0.22;
 const SCROLL_IDLE_MS = 200;
 
+/** Round a pixel value to the nearest device pixel. */
+function snapToDevicePx(px: number, dpr: number): number {
+  return Math.round(px * dpr) / dpr;
+}
+
+/** Known surface tokens — used for publish validation. */
+const VALID_SURFACES: ReadonlySet<string> = new Set(['paper', 'ink', 'dust']);
+
 type InitParams = {
   zoomStage: HTMLElement;
   content: HTMLElement;
@@ -78,6 +86,51 @@ export class ScrollEngine {
   private lastHeaderVars: Record<string, string> = {};
   private contractAsserted = false;
   private multiWarnShown = false;
+
+  // Publish-pass guard: detect re-entrance into updateHeaderSurface()
+  private headerPublishPassId = 0;
+  private lastHeaderSurfacePassId = -1;
+
+  // Validation & jump detection state
+  private lastGoodHeaderState: {
+    boundaryZonePx: number;
+    boundaryRowPx: number;
+    topSurface: HeaderSurface;
+    bottomSurface: HeaderSurface;
+  } | null = null;
+  private prevBoundaryZonePx = 0;
+  private prevScrollYForJumpDetect = 0;
+  private prevFrameWasValid = false;
+
+  /** Dev-only: mutable isolation flags. Toggle from console via __engine.debugFlags */
+  debugFlags = import.meta.env.DEV ? {
+    enableUnderlayPaint: true,
+    enableForegroundPaint: true,
+    enableBoundarySnap: true,
+    enableValidation: true,
+  } : null;
+
+  /** Dev-only: rolling frame log for header transition debugging. */
+  private headerFrameLog: Array<{
+    ts: number;
+    scrollY: number;
+    rawBoundaryZonePx: number;
+    boundaryZonePx: number;
+    boundaryRowPx: number;
+    boundariesInZone: number;
+    topSurface: string;
+    bottomSurface: string;
+    zoneWritesApplied: number;
+    rowWritesApplied: number;
+    published: boolean;
+    skipReason: string | null;
+  }> | null = import.meta.env.DEV ? [] : null;
+  private static readonly FRAME_LOG_MAX = 300;
+
+  /** Dev-only: access the frame log from console. */
+  getHeaderFrameLog() {
+    return this.headerFrameLog;
+  }
 
   /** Latest computed header stencil values, consumed by DebugLayer readouts. */
   headerDebugSnapshot = {
@@ -187,16 +240,21 @@ export class ScrollEngine {
     this.writeHeaderGeometryVars();
     // Set initial header stencil + underlay CSS vars (paper surface, so the
     // underlay and foreground stencils are correct on first paint before the
-    // engine tick runs).
-    const root = document.documentElement.style;
+    // engine tick runs). Scoped to the actual header elements, not :root.
     const paperBg = SURFACE_COLORS['paper'];
     const paperFg = SURFACE_FG['paper'];
-    root.setProperty('--header-surface-top', paperBg);
-    root.setProperty('--header-surface-bottom', paperBg);
-    root.setProperty('--header-fg-top', paperFg);
-    root.setProperty('--header-fg-bottom', paperFg);
-    root.setProperty('--header-boundary-zone-px', '0px');
-    root.setProperty('--header-boundary-row-px', '0px');
+    if (this.siteHeaderEl) {
+      const zoneStyle = this.siteHeaderEl.style;
+      zoneStyle.setProperty('--header-surface-top', paperBg);
+      zoneStyle.setProperty('--header-surface-bottom', paperBg);
+      zoneStyle.setProperty('--header-boundary-zone-px', '0px');
+    }
+    if (this.headerRowEl) {
+      const rowStyle = this.headerRowEl.style;
+      rowStyle.setProperty('--header-fg-top', paperFg);
+      rowStyle.setProperty('--header-fg-bottom', paperFg);
+      rowStyle.setProperty('--header-boundary-row-px', '0px');
+    }
     rootAttrs.setPastHero(false);
     rootAttrs.setTimelineReveal(false);
 
@@ -524,12 +582,23 @@ export class ScrollEngine {
     this.surfaceRegions = this.measureSurfaceRegions();
     this.cacheHeaderDOMRefs();
     this.measureHeaderGeometry();
+    // Update --header-row-h from re-measured geometry (geometry-time only)
+    if (this.headerRowEl) {
+      this.headerRowEl.style.setProperty('--header-row-h', this.cachedHeaderRowH + 'px');
+    }
+    if (import.meta.env.DEV && this.state.scrollActive) {
+      // eslint-disable-next-line no-console
+      console.warn('[header] performMeasure during scroll');
+    }
     this.state.docHeight = this.contentEl.offsetHeight;
     this.state.viewportH = getViewportH();
     this.state.viewportW = getViewportW();
 
     // Re-derive active chapter and re-target segment springs to current active
     this.updateDerived(window.scrollY);
+    // Explicit post-measure header surface update (second legitimate call site)
+    this.headerPublishPassId++;
+    this.updateHeaderSurface();
     const active = this.chapters.find((c) => c.id === this.state.activeChapterId);
     if (active) {
       this.activeSegmentStartSpring.jumpTo(active.startN);
@@ -631,7 +700,11 @@ export class ScrollEngine {
     rootCSS.setLabelScale(this.labelScaleSpring.get());
     this.state.zoomScale = this.zoomScaleSpring.get();
 
-    // 5. Timeline layers update (imperative SVG writes)
+    // 5. Header surface — exactly once per animation frame
+    this.headerPublishPassId++;
+    this.updateHeaderSurface();
+
+    // 6. Timeline layers update (imperative SVG writes)
     const frameState: TimelineFrameState = {
       playheadRaw: this.state.playheadRaw,
       playheadSmoothed: this.playheadSpring.get(),
@@ -646,18 +719,18 @@ export class ScrollEngine {
     };
     this.timelineEngine.update(frameState);
 
-    // 6. Apply zoom scale to ZoomStage
+    // 7. Apply zoom scale to ZoomStage
     this.zoomController.applyScale(this.zoomScaleSpring.get());
 
-    // 7. Discrete state change notify
+    // 8. Discrete state change notify
     this.notifyDiscreteChange();
 
-    // 8. Debug layer
+    // 9. Debug layer
     if (this.state.debug) {
       this.debugLayer.update();
     }
 
-    // 9. Schedule or sleep
+    // 10. Schedule or sleep
     if (keep) {
       if (typeof document !== 'undefined' && document.hidden) {
         this.rafId = window.setTimeout(
@@ -713,8 +786,8 @@ export class ScrollEngine {
       rootAttrs.setChapterBg(bg);
     }
 
-    // Header surface: geometry-based detection at the header's bottom edge
-    this.updateHeaderSurface();
+    // Header surface is NOT called here — it runs exactly once per frame
+    // in tick(), or once per measure in performMeasure().
 
     if (newActiveChapterObj) {
       const cLen = newActiveChapterObj.endN - newActiveChapterObj.startN;
@@ -781,13 +854,16 @@ export class ScrollEngine {
 
   /** Measure real rendered header geometry. Called on init + resize. */
   private measureHeaderGeometry(): void {
-    this.cachedHeaderTotalH =
-      this.siteHeaderEl?.getBoundingClientRect().height ?? 48;
-    this.cachedSafeTop = this.siteHeaderEl
-      ? parseFloat(getComputedStyle(this.siteHeaderEl).paddingTop) || 0
-      : 0;
-    this.cachedHeaderRowH =
-      this.headerRowEl?.getBoundingClientRect().height ?? 48;
+    const dpr = window.devicePixelRatio || 1;
+    this.cachedHeaderTotalH = snapToDevicePx(
+      this.siteHeaderEl?.getBoundingClientRect().height ?? 48, dpr);
+    this.cachedSafeTop = snapToDevicePx(
+      this.siteHeaderEl
+        ? parseFloat(getComputedStyle(this.siteHeaderEl).paddingTop) || 0
+        : 0,
+      dpr);
+    this.cachedHeaderRowH = snapToDevicePx(
+      this.headerRowEl?.getBoundingClientRect().height ?? 48, dpr);
     this.headerDebugSnapshot.headerRowH = this.cachedHeaderRowH;
     this.assertHeaderGeometryContract();
   }
@@ -798,6 +874,7 @@ export class ScrollEngine {
    * (.debug-icon-split) both read from these vars — one source of truth.
    */
   private writeHeaderGeometryVars(): void {
+    // Static design-token vars stay global — written once, consumed broadly.
     const r = document.documentElement.style;
     r.setProperty('--header-height', HEADER_GEOMETRY.headerRowHeightPx + 'px');
     r.setProperty(
@@ -809,6 +886,12 @@ export class ScrollEngine {
     r.setProperty('--menu-icon-height-px', HEADER_GEOMETRY.menuIconHeightPx + 'px');
     r.setProperty('--menu-icon-viewbox-w-px', HEADER_GEOMETRY.menuIconViewBoxW + 'px');
     r.setProperty('--menu-icon-viewbox-h-px', HEADER_GEOMETRY.menuIconViewBoxH + 'px');
+
+    // --header-row-h is runtime-measured, scoped to .header-row.
+    // Stencil gradients consume this so their end-stop matches the actual box.
+    if (this.headerRowEl) {
+      this.headerRowEl.style.setProperty('--header-row-h', this.cachedHeaderRowH + 'px');
+    }
   }
 
   /**
@@ -852,6 +935,15 @@ export class ScrollEngine {
    *   --header-boundary-row-px                        → foreground stop
    */
   private updateHeaderSurface(): void {
+    // Dev-only publish-pass guard — detect re-entrance
+    if (import.meta.env.DEV) {
+      if (this.lastHeaderSurfacePassId === this.headerPublishPassId) {
+        // eslint-disable-next-line no-console
+        console.warn('[header] updateHeaderSurface re-entered within publish pass', this.headerPublishPassId);
+      }
+      this.lastHeaderSurfacePassId = this.headerPublishPassId;
+    }
+
     const h = this.cachedHeaderTotalH;
     const safeTop = this.cachedSafeTop;
     const rowH = this.cachedHeaderRowH;
@@ -895,7 +987,9 @@ export class ScrollEngine {
       boundaryRowPx = 0;
     } else {
       // Exactly one boundary — snap once, derive row value
-      boundaryZonePx = Math.round(rawBoundaryZonePx * dpr) / dpr;
+      boundaryZonePx = (!this.debugFlags || this.debugFlags.enableBoundarySnap)
+        ? Math.round(rawBoundaryZonePx * dpr) / dpr
+        : rawBoundaryZonePx;
       boundaryRowPx = Math.max(0, Math.min(rowH, boundaryZonePx - safeTop));
 
       // Probe epsilon: half a device pixel, clamped to half distance to zone edge
@@ -915,20 +1009,128 @@ export class ScrollEngine {
     this.headerDebugSnapshot.topSurface = topSurface;
     this.headerDebugSnapshot.bottomSurface = bottomSurface;
 
-    // (3) Publish — same surfaces, two coordinate frames
-    const vars: Record<string, string> = {
+    // (3) Validate full publish payload as one unit
+    const validationEnabled = !this.debugFlags || this.debugFlags.enableValidation;
+    if (validationEnabled) {
+      const numericValid =
+        Number.isFinite(boundaryZonePx) &&
+        Number.isFinite(boundaryRowPx) &&
+        Number.isFinite(boundariesInZone) &&
+        boundariesInZone >= 0 &&
+        boundaryZonePx >= 0 && boundaryZonePx <= h &&
+        boundaryRowPx >= 0 && boundaryRowPx <= rowH;
+
+      const tokensValid =
+        VALID_SURFACES.has(topSurface) &&
+        VALID_SURFACES.has(bottomSurface) &&
+        SURFACE_COLORS[topSurface] !== undefined &&
+        SURFACE_COLORS[bottomSurface] !== undefined &&
+        SURFACE_FG[topSurface] !== undefined &&
+        SURFACE_FG[bottomSurface] !== undefined;
+
+      const invariantsValid =
+        (boundariesInZone === 0 ? topSurface === bottomSurface : true) &&
+        (boundariesInZone === 1 ? topSurface !== bottomSurface : true);
+
+      const targetsPresent = this.siteHeaderEl !== null && this.headerRowEl !== null;
+
+      if (!numericValid || !tokensValid || !invariantsValid || !targetsPresent) {
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.warn('[header] invalid state — skipping publish', {
+            boundaryZonePx, boundaryRowPx, boundariesInZone,
+            topSurface, bottomSurface, h, rowH,
+            numericValid, tokensValid, invariantsValid, targetsPresent,
+            lastGood: this.lastGoodHeaderState,
+          });
+        }
+        this.prevFrameWasValid = false;
+        // Log skipped frame
+        if (import.meta.env.DEV && this.headerFrameLog) {
+          this.headerFrameLog.push({
+            ts: performance.now(), scrollY: this.state.rawScrollY,
+            rawBoundaryZonePx, boundaryZonePx, boundaryRowPx,
+            boundariesInZone, topSurface, bottomSurface,
+            zoneWritesApplied: 0, rowWritesApplied: 0,
+            published: false,
+            skipReason: !numericValid ? 'numeric' : !tokensValid ? 'tokens' : !invariantsValid ? 'invariants' : 'targets',
+          });
+          if (this.headerFrameLog.length > ScrollEngine.FRAME_LOG_MAX) {
+            this.headerFrameLog.shift();
+          }
+        }
+        return; // skip publish entirely — DOM holds last good state
+      }
+    }
+
+    // (4) Jump detection (dev only, only against valid previous frame)
+    if (import.meta.env.DEV && this.prevFrameWasValid) {
+      const epsilon = 0.01;
+      const jumpThreshold = 1 / dpr + epsilon;
+      const scrollDelta = Math.abs(this.state.rawScrollY - this.prevScrollYForJumpDetect);
+      const boundaryDelta = Math.abs(boundaryZonePx - this.prevBoundaryZonePx);
+      if (boundaryDelta > jumpThreshold && scrollDelta < 2) {
+        // eslint-disable-next-line no-console
+        console.warn('[header] boundary jump without scroll', {
+          prev: this.prevBoundaryZonePx, next: boundaryZonePx, scrollDelta,
+        });
+      }
+    }
+
+    // (5) Publish — zone-level vars on #site-header, row-level vars on .header-row
+    const zoneVars: Record<string, string> = {
       '--header-surface-top': SURFACE_COLORS[topSurface],
       '--header-surface-bottom': SURFACE_COLORS[bottomSurface],
+      '--header-boundary-zone-px': boundaryZonePx + 'px',
+    };
+    const rowVars: Record<string, string> = {
       '--header-fg-top': SURFACE_FG[topSurface],
       '--header-fg-bottom': SURFACE_FG[bottomSurface],
-      '--header-boundary-zone-px': boundaryZonePx + 'px',
       '--header-boundary-row-px': boundaryRowPx + 'px',
     };
-    const root = document.documentElement.style;
-    for (const [k, v] of Object.entries(vars)) {
-      if (this.lastHeaderVars[k] !== v) {
-        root.setProperty(k, v);
-        this.lastHeaderVars[k] = v;
+
+    let zoneWritesApplied = 0;
+    let rowWritesApplied = 0;
+
+    if (!this.debugFlags || this.debugFlags.enableUnderlayPaint) {
+      const zoneStyle = this.siteHeaderEl!.style;
+      for (const [k, v] of Object.entries(zoneVars)) {
+        if (this.lastHeaderVars[k] !== v) {
+          zoneStyle.setProperty(k, v);
+          this.lastHeaderVars[k] = v;
+          zoneWritesApplied++;
+        }
+      }
+    }
+
+    if (!this.debugFlags || this.debugFlags.enableForegroundPaint) {
+      const rowStyle = this.headerRowEl!.style;
+      for (const [k, v] of Object.entries(rowVars)) {
+        if (this.lastHeaderVars[k] !== v) {
+          rowStyle.setProperty(k, v);
+          this.lastHeaderVars[k] = v;
+          rowWritesApplied++;
+        }
+      }
+    }
+
+    // Update tracking state after successful publish
+    this.lastGoodHeaderState = { boundaryZonePx, boundaryRowPx, topSurface, bottomSurface };
+    this.prevBoundaryZonePx = boundaryZonePx;
+    this.prevScrollYForJumpDetect = this.state.rawScrollY;
+    this.prevFrameWasValid = true;
+
+    // Dev-only frame log
+    if (import.meta.env.DEV && this.headerFrameLog) {
+      this.headerFrameLog.push({
+        ts: performance.now(), scrollY: this.state.rawScrollY,
+        rawBoundaryZonePx, boundaryZonePx, boundaryRowPx,
+        boundariesInZone, topSurface, bottomSurface,
+        zoneWritesApplied, rowWritesApplied,
+        published: true, skipReason: null,
+      });
+      if (this.headerFrameLog.length > ScrollEngine.FRAME_LOG_MAX) {
+        this.headerFrameLog.shift();
       }
     }
   }
