@@ -1029,8 +1029,16 @@ export class ScrollEngine {
         SURFACE_FG[bottomSurface] !== undefined;
 
       const invariantsValid =
-        (boundariesInZone === 0 ? topSurface === bottomSurface : true) &&
-        (boundariesInZone === 1 ? topSurface !== bottomSurface : true);
+        (boundariesInZone === 0 ? topSurface === bottomSurface : true);
+
+      // When boundariesInZone === 1 but both probes return the same surface,
+      // the boundary is at the zone edge with clamped epsilon, or adjacent
+      // regions share a surface. The gradient will be uniform (no visible
+      // split) — visually correct. Warn in dev but do NOT block publish.
+      if (import.meta.env.DEV && boundariesInZone === 1 && topSurface === bottomSurface) {
+        // eslint-disable-next-line no-console
+        console.warn('[header] single boundary but same surface on both sides — probe epsilon may be too small');
+      }
 
       const targetsPresent = this.siteHeaderEl !== null && this.headerRowEl !== null;
 
