@@ -1,3 +1,4 @@
+import { placeholder } from './placeholder';
 import { type Localized, resolveText } from './i18n';
 
 export type ParagraphKind = 'text' | 'pullquote' | 'polaroid' | 'sticky-image';
@@ -162,7 +163,7 @@ const chapterSource: ChapterSource[] = [
           },
           {
             kind: 'polaroid',
-            src: 'https://placehold.co/800x1000/f5f1e8/1a1a1a?text=Riga+1938',
+            src: placeholder(800, 1000, 'f5f1e8', '1a1a1a', 'Riga 1938'),
             alt: 'Von Gerkan family home in Riga',
             caption: 'The house in Riga, photographed by his father, 1938.',
             width: 800,
@@ -188,7 +189,7 @@ const chapterSource: ChapterSource[] = [
           },
           {
             kind: 'sticky-image',
-            src: 'https://placehold.co/800x600/2a2a2a/444444?text=.',
+            src: placeholder(800, 600, '2a2a2a', '444444'),
             alt: 'Hamburg after the war, 1946',
             width: 800,
             height: 600,
@@ -225,7 +226,7 @@ const chapterSource: ChapterSource[] = [
           },
           {
             kind: 'polaroid',
-            src: 'https://placehold.co/800x1000/f5f1e8/1a1a1a?text=Braunschweig+1962',
+            src: placeholder(800, 1000, 'f5f1e8', '1a1a1a', 'Braunschweig 1962'),
             alt: 'Von Gerkan at TU Braunschweig',
             caption: 'At the Technische Universität Braunschweig, 1962.',
             width: 800,
@@ -283,7 +284,7 @@ const chapterSource: ChapterSource[] = [
           },
           {
             kind: 'sticky-image',
-            src: 'https://placehold.co/800x600/555555/666666?text=.',
+            src: placeholder(800, 600, '555555', '666666'),
             alt: 'Berlin-Tegel Airport, 1974',
             width: 800,
             height: 600,
@@ -297,7 +298,7 @@ const chapterSource: ChapterSource[] = [
           },
           {
             kind: 'polaroid',
-            src: 'https://placehold.co/800x1000/f5f1e8/1a1a1a?text=Tegel+Model+1965',
+            src: placeholder(800, 1000, 'f5f1e8', '1a1a1a', 'Tegel Model 1965'),
             alt: 'Tegel hexagon model',
             caption: 'The competition model, 1965. The gates radiated from the traveler, not the other way around.',
             width: 800,
@@ -349,7 +350,7 @@ const chapterSource: ChapterSource[] = [
           },
           {
             kind: 'polaroid',
-            src: 'https://placehold.co/800x1000/f5f1e8/1a1a1a?text=Stuttgart+1991',
+            src: placeholder(800, 1000, 'f5f1e8', '1a1a1a', 'Stuttgart 1991'),
             alt: 'Stuttgart Trade Fair construction',
             caption: 'Stuttgart Trade Fair under construction, 1991.',
             width: 800,
@@ -374,7 +375,7 @@ const chapterSource: ChapterSource[] = [
           },
           {
             kind: 'sticky-image',
-            src: 'https://placehold.co/800x600/2a2a2a/444444?text=.',
+            src: placeholder(800, 600, '2a2a2a', '444444'),
             alt: 'Leipzig Trade Fair glass hall',
             width: 800,
             height: 600,
@@ -421,7 +422,7 @@ const chapterSource: ChapterSource[] = [
           },
           {
             kind: 'polaroid',
-            src: 'https://placehold.co/800x1000/f5f1e8/1a1a1a?text=Beijing+2003',
+            src: placeholder(800, 1000, 'f5f1e8', '1a1a1a', 'Beijing 2003'),
             alt: 'At the Beijing office, 2003',
             caption: 'At the new Beijing office, 2003.',
             width: 800,
@@ -441,7 +442,7 @@ const chapterSource: ChapterSource[] = [
           },
           {
             kind: 'sticky-image',
-            src: 'https://placehold.co/800x600/2a2a2a/444444?text=.',
+            src: placeholder(800, 600, '2a2a2a', '444444'),
             alt: 'Lingang master plan',
             width: 800,
             height: 600,

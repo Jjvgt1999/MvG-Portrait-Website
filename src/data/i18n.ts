@@ -23,7 +23,7 @@ function detectLocale(): Locale {
 export const locale: Locale = detectLocale();
 
 /** Review mode (?review) marks passages whose source is not yet verified. */
-export const reviewMode: boolean = readParams().has('review');
+export const reviewMode: boolean = readParams().has('review') || import.meta.env.VITE_REVIEW === '1';
 
 /** Resolve a Localized value; falls back to the other language when missing. */
 export function resolveText(value: Localized, loc: Locale = locale): string {

@@ -1,3 +1,4 @@
+import { placeholder } from './placeholder';
 import type { Localized } from './i18n';
 import type { Source } from './chapters';
 
@@ -35,7 +36,7 @@ export const projects: ProjectData[] = [
     },
     images: [
       {
-        src: 'https://placehold.co/1600x1000/2a2a2a/444444?text=Tegel',
+        src: placeholder(1600, 1000, '2a2a2a', '444444', 'Tegel'),
         alt: { de: 'Terminal Tegel, Platzhalter', en: 'Tegel terminal, placeholder' },
       },
     ],

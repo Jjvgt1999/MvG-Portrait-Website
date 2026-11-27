@@ -1,3 +1,4 @@
+import { placeholder } from '@/data/placeholder';
 import { Polaroid } from '../ui/Polaroid';
 
 export function Hero() {
@@ -16,7 +17,7 @@ export function Hero() {
         }}
       >
         <Polaroid
-          src="https://placehold.co/800x1000/d4cfc0/3a3a3a?text=MvG"
+          src={placeholder(800, 1000, 'd4cfc0', '3a3a3a', 'MvG')}
           alt="Portrait of Meinhard von Gerkan"
           caption="Meinhard von Gerkan, circa 1970"
           rotation={-2}
