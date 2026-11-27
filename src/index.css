@@ -1020,3 +1020,14 @@ html[data-debug='true'] .debug-header-hairlines {
 .section-pad {
   padding: clamp(6rem, 12vh, 12rem) 0;
 }
+
+/* Review mode (?review): flags passages without a verified source. */
+.review-note {
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid #c2410c;
+  background: rgba(194, 65, 12, 0.08);
+  color: #9a3412;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}

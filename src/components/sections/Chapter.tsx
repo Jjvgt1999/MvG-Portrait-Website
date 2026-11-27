@@ -4,6 +4,7 @@ import { PageMarker } from '../ui/PageMarker';
 import { Polaroid } from '../ui/Polaroid';
 import { PullQuote } from '../ui/PullQuote';
 import { StickyImage } from '../ui/StickyImage';
+import { ReviewNote } from '../ui/ReviewNote';
 
 type ChapterProps = {
   chapter: ChapterData;
@@ -53,13 +54,21 @@ export function Chapter({ chapter, background }: ChapterProps) {
 function ParagraphBlock({ paragraph }: { paragraph: Paragraph }) {
   if (paragraph.kind === 'text') {
     return (
-      <p className="reading-measure font-serif mb-7" style={{ fontSize: '1.25rem', lineHeight: 1.7 }}>
-        {paragraph.content}
-      </p>
+      <>
+        <ReviewNote provenance={paragraph.provenance} />
+        <p className="reading-measure font-serif mb-7" style={{ fontSize: '1.25rem', lineHeight: 1.7 }}>
+          {paragraph.content}
+        </p>
+      </>
     );
   }
   if (paragraph.kind === 'pullquote') {
-    return <PullQuote attribution={paragraph.attribution}>{paragraph.content}</PullQuote>;
+    return (
+      <>
+        <PullQuote attribution={paragraph.attribution}>{paragraph.content}</PullQuote>
+        <ReviewNote provenance={paragraph.provenance} />
+      </>
+    );
   }
   if (paragraph.kind === 'polaroid') {
     return (
