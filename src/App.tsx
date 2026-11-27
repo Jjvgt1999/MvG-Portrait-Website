@@ -5,7 +5,6 @@ import { TimelineNav, useTimelineRefs } from '@/components/layout/TimelineNav';
 import { BlockerLayer } from '@/components/layout/BlockerLayer';
 import { TransitionOverlay } from '@/components/layout/TransitionOverlay';
 import { CurrentChapterIndicator } from '@/components/layout/CurrentChapterIndicator';
-import { MobileHeaderOccluder } from '@/components/layout/MobileHeaderOccluder';
 import { MobileHeader } from '@/components/layout/MobileHeader';
 import { Hero } from '@/components/sections/Hero';
 import { OpeningQuote } from '@/components/sections/OpeningQuote';
@@ -77,7 +76,6 @@ export default function App() {
       <BlockerLayer />
       <CurrentChapterIndicator />
       <TimelineNav refs={timelineRefs} />
-      <MobileHeaderOccluder />
       <MobileHeader />
     </>
   );
